@@ -41,12 +41,20 @@ export function HomePage() {
         <p className="mt-7 mb-9 max-w-xl text-[clamp(1rem,2.4vw,1.2rem)] leading-[1.55] text-muted">
           Каркас приложения и общая UI-система для динамических воронок.
         </p>
-        <Link
-          className="mb-12 inline-flex min-h-12 items-center rounded-control bg-accent px-5 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:outline-none"
-          to="/dev/ui"
-        >
-          Открыть UI foundation
-        </Link>
+        <div className="mb-12 flex flex-wrap gap-3">
+          <Link
+            className="inline-flex min-h-12 items-center rounded-control bg-accent px-5 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:outline-none"
+            to="/admin"
+          >
+            Открыть конфигурацию
+          </Link>
+          <Link
+            className="inline-flex min-h-12 items-center rounded-control border border-line bg-surface px-5 text-sm font-semibold transition-colors hover:border-accent/35 hover:bg-accent-soft focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:outline-none"
+            to="/dev/ui"
+          >
+            UI foundation
+          </Link>
+        </div>
         <div className="grid w-full grid-cols-[10px_auto_1fr] items-center gap-3 border-t border-line pt-[18px] text-sm text-muted sm:w-fit sm:min-w-[250px]">
           <span className={`h-2 w-2 rounded-full ${healthDotClass[health]}`} aria-hidden="true" />
           <strong className="font-semibold text-ink">API</strong>

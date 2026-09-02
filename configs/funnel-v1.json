@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 1,
+  "id": "financial-path",
+  "name": "Подбор финансового сценария",
+  "version": 1,
+  "status": "active",
+  "createdAt": "2026-09-03T00:00:00.000Z",
+  "publishedAt": "2026-09-03T00:00:00.000Z",
+  "entryStepId": "welcome",
+  "experiment": {
+    "id": "question-order-v1",
+    "hypothesis": "Если сначала спросить сумму, пользователь быстрее понимает практическую ценность воронки и чаще доходит до результата.",
+    "primaryMetric": "result_completion_rate",
+    "variants": {
+      "A": {
+        "name": "Цель сначала",
+        "description": "Сначала выясняем цель пользователя, затем запрашиваем сумму.",
+        "weight": 50,
+        "stepOverrides": {}
+      },
+      "B": {
+        "name": "Сумма сначала",
+        "description": "Сразу начинаем с суммы и меняем формулировку финального экрана.",
+        "weight": 50,
+        "stepOverrides": {
+          "welcome": {
+            "title": "Начнём с пары практических вопросов",
+            "description": "Сначала определим сумму, а затем уточним вашу финансовую цель.",
+            "next": {
+              "type": "direct",
+              "stepId": "amount"
+            }
+          },
+          "amount": {
+            "next": {
+              "type": "direct",
+              "stepId": "goal"
+            }
+          },
+          "goal": {
+            "next": {
+              "type": "direct",
+              "stepId": "priorities"
+            }
+          },
+          "result": {
+            "title": "Ваш персональный маршрут готов",
+            "description": "Мы учли сумму, цель и ваши предпочтения и подготовили следующий шаг.",
+            "ctaLabel": "Открыть мой маршрут"
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "id": "welcome",
+      "type": "info",
+      "title": "Подберём подходящий финансовый сценарий",
+      "description": "Ответьте на несколько вопросов. Это займёт около двух минут.",
+      "next": {
+        "type": "direct",
+        "stepId": "goal"
+      }
+    },
+    {
+      "id": "goal",
+      "type": "single-select",
+      "title": "Какая у вас основная цель?",
+      "description": "Выберите один наиболее подходящий вариант.",
+      "options": [
+        {
+          "value": "invest",
+          "label": "Начать инвестировать",
+          "description": "Постепенно увеличивать капитал"
+        },
+        {
+          "value": "save",
+          "label": "Создать накопления",
+          "description": "Сформировать финансовую подушку"
+        },
+        {
+          "value": "finance",
+          "label": "Получить финансирование",
+          "description": "Для крупной покупки или развития проекта"
+        }
+      ],
+      "validation": {
+        "required": true
+      },
+      "next": {
+        "type": "direct",
+        "stepId": "amount"
+      }
+    },
+    {
+      "id": "amount",
+      "type": "number",
+      "title": "С какой суммой вы планируете работать?",
+      "description": "Укажите ориентировочную сумму.",
+      "label": "Сумма",
+      "min": 10000,
+      "max": 10000000,
+      "suffix": "₽",
+      "validation": {
+        "required": true
+      },
+      "next": {
+        "type": "direct",
+        "stepId": "priorities"
+      }
+    },
+    {
+      "id": "priorities",
+      "type": "multi-select",
+      "title": "Что для вас особенно важно?",
+      "description": "Выберите до двух вариантов.",
+      "options": [
+        {
+          "value": "speed",
+          "label": "Быстрый старт"
+        },
+        {
+          "value": "support",
+          "label": "Помощь специалиста"
+        },
+        {
+          "value": "flexibility",
+          "label": "Гибкие условия"
+        }
+      ],
+      "validation": {
+        "required": true,
+        "minSelections": 1,
+        "maxSelections": 2
+      },
+      "next": {
+        "type": "direct",
+        "stepId": "experience"
+      }
+    },
+    {
+      "id": "experience",
+      "type": "single-select",
+      "title": "Какой у вас опыт инвестирования?",
+      "description": "Ответ определит следующий доступный шаг.",
+      "options": [
+        {
+          "value": "beginner",
+          "label": "Только начинаю"
+        },
+        {
+          "value": "experienced",
+          "label": "Уже есть опыт"
+        }
+      ],
+      "validation": {
+        "required": true
+      },
+      "next": {
+        "type": "branch",
+        "rules": [
+          {
+            "when": {
+              "stepId": "experience",
+              "operator": "equals",
+              "value": "beginner"
+            },
+            "stepId": "education"
+          }
+        ],
+        "fallbackStepId": "result"
+      }
+    },
+    {
+      "id": "education",
+      "type": "info",
+      "title": "Начнём с понятной основы",
+      "description": "Для первого шага подойдёт сценарий с небольшим порогом входа и подсказками специалиста.",
+      "next": {
+        "type": "direct",
+        "stepId": "result"
+      }
+    },
+    {
+      "id": "result",
+      "type": "result",
+      "title": "Рекомендация готова",
+      "description": "Мы подготовили подходящий сценарий на основе ваших целей и предпочтений.",
+      "cta": {
+        "label": "Посмотреть предложение",
+        "href": "https://example.com/offer"
+      }
+    }
+  ]
+}

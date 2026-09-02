@@ -25,3 +25,28 @@ describe('health endpoint', () => {
     })
   })
 })
+
+describe('active funnel endpoint', () => {
+  it('returns the validated active configuration', async () => {
+    const app = buildApp()
+    apps.push(app)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/funnels/active'
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      id: 'financial-path',
+      version: 1,
+      status: 'active',
+      experiment: {
+        variants: {
+          A: { weight: 50 },
+          B: { weight: 50 }
+        }
+      }
+    })
+  })
+})

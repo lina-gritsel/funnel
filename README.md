@@ -17,8 +17,11 @@ npm run dev
 The development servers start at:
 
 - Web: http://localhost:5173
+- Config admin: http://localhost:5173/admin
+- Analytics admin: http://localhost:5173/admin/analytics
 - UI foundation: http://localhost:5173/dev/ui
 - API: http://localhost:3001
+- Active funnel config: http://localhost:3001/api/funnels/active
 
 Additional commands:
 
@@ -41,3 +44,14 @@ packages/funnel-engine   Framework-independent funnel logic
 configs                  Versioned sample funnel configurations
 scripts                  Project automation and traffic generation
 ```
+
+The active `configs/funnel-v1.json` contains seven screens, a conditional branch and A/B variants.
+The backend validates it before returning it to the frontend. The internal `/admin` page is a
+read-only view of the active configuration; publishing and rollback are implemented separately.
+
+## A/B experiment
+
+The first experiment checks whether asking for the planned amount before the financial goal makes
+the value of the funnel clearer and helps more people reach the result. Variant A starts with the
+goal; variant B starts with the amount and uses different result copy. The primary metric is
+`result_completion_rate` — the share of started unique sessions that reach the result screen.
