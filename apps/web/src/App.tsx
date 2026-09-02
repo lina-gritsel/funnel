@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
+import { startEventDelivery } from './analytics/event-queue'
 import { HomePage } from './pages/HomePage'
 import { AdminFunnelPage } from './pages/AdminFunnelPage'
 import { AdminAnalyticsPage } from './pages/AdminAnalyticsPage'
@@ -7,6 +9,8 @@ import { FunnelPage } from './pages/FunnelPage'
 import { UiKitPage } from './pages/UiKitPage'
 
 export function App() {
+  useEffect(() => startEventDelivery(), [])
+
   return (
     <Routes>
       <Route path="/" element={<FunnelPage />} />

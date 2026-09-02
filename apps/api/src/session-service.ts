@@ -1,7 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 import type {
   CreateSessionRequest,
@@ -14,14 +11,10 @@ import type {
   SubmitAnswerRequest
 } from '@funnel/contracts'
 import { advanceRuntime, getStep, moveRuntimeBack, resolveVariant } from '@funnel/engine'
-import Database from 'better-sqlite3'
 
+import type { AppDatabase } from './database.js'
+import type { EventService } from './event-service.js'
 import { loadActiveFunnelConfig, loadFunnelConfig } from './funnel-config.js'
-
-const defaultDatabasePath = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../data/funnel.db'
-)
 
 type SessionRow = {
   id: string
@@ -39,7 +32,6 @@ type SessionRow = {
 }
 
 type SessionServiceOptions = {
-  databasePath?: string
   random?: () => number
 }
 
@@ -90,33 +82,14 @@ function pickVariant(config: FunnelConfig, random: () => number): FunnelVariantI
 }
 
 export class SessionService {
-  private readonly database: Database.Database
   private readonly random: () => number
 
-  constructor(options: SessionServiceOptions = {}) {
-    const databasePath = options.databasePath ?? defaultDatabasePath
-    if (databasePath !== ':memory:') mkdirSync(dirname(databasePath), { recursive: true })
-
-    this.database = new Database(databasePath)
+  constructor(
+    private readonly database: AppDatabase,
+    private readonly events: EventService,
+    options: SessionServiceOptions = {}
+  ) {
     this.random = options.random ?? Math.random
-
-    if (databasePath !== ':memory:') this.database.pragma('journal_mode = WAL')
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        funnel_id TEXT NOT NULL,
-        funnel_version INTEGER NOT NULL,
-        variant TEXT NOT NULL CHECK (variant IN ('A', 'B')),
-        current_step_id TEXT NOT NULL,
-        trail_json TEXT NOT NULL,
-        cursor INTEGER NOT NULL,
-        answers_json TEXT NOT NULL,
-        utm_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        completed_at TEXT
-      )
-    `)
   }
 
   async create(input: CreateSessionRequest): Promise<SessionBootstrapResponse> {
@@ -139,30 +112,33 @@ export class SessionService {
       completedAt: null
     }
 
-    this.database
-      .prepare(
-        `INSERT INTO sessions (
-          id, funnel_id, funnel_version, variant, current_step_id, trail_json, cursor,
-          answers_json, utm_json, created_at, updated_at, completed_at
-        ) VALUES (
-          @id, @funnelId, @version, @variant, @currentStepId, @trail, @cursor,
-          @answers, @utm, @createdAt, @updatedAt, @completedAt
-        )`
-      )
-      .run({
-        id: session.id,
-        funnelId: session.funnelId,
-        version: session.version,
-        variant: session.variant,
-        currentStepId: session.currentStepId,
-        trail: JSON.stringify(session.trail),
-        cursor: session.cursor,
-        answers: JSON.stringify(session.answers),
-        utm: JSON.stringify(session.utm),
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        completedAt: session.completedAt
-      })
+    this.database.transaction(() => {
+      this.database
+        .prepare(
+          `INSERT INTO sessions (
+            id, funnel_id, funnel_version, variant, current_step_id, trail_json, cursor,
+            answers_json, utm_json, created_at, updated_at, completed_at
+          ) VALUES (
+            @id, @funnelId, @version, @variant, @currentStepId, @trail, @cursor,
+            @answers, @utm, @createdAt, @updatedAt, @completedAt
+          )`
+        )
+        .run({
+          id: session.id,
+          funnelId: session.funnelId,
+          version: session.version,
+          variant: session.variant,
+          currentStepId: session.currentStepId,
+          trail: JSON.stringify(session.trail),
+          cursor: session.cursor,
+          answers: JSON.stringify(session.answers),
+          utm: JSON.stringify(session.utm),
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+          completedAt: session.completedAt
+        })
+      this.events.recordSessionStarted(session, input.clientTimestamp)
+    })()
 
     return { session, config }
   }
@@ -226,10 +202,6 @@ export class SessionService {
 
     this.update(updated)
     return { session: updated }
-  }
-
-  close() {
-    this.database.close()
   }
 
   private getSession(id: string): FunnelSession {

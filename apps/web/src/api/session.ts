@@ -13,6 +13,10 @@ type BootstrapSessionInput = {
   signal: AbortSignal
 }
 
+export type SessionBootstrapResult = SessionBootstrapResponse & {
+  viewReason: 'initial' | 'refresh'
+}
+
 function storageKey(variant?: FunnelVariantId) {
   return `funnel-session:${variant ?? 'assigned'}`
 }
@@ -26,13 +30,18 @@ export async function bootstrapSession({
   variant,
   utm,
   signal
-}: BootstrapSessionInput): Promise<SessionBootstrapResponse> {
+}: BootstrapSessionInput): Promise<SessionBootstrapResult> {
   const key = storageKey(variant)
   const savedId = window.localStorage.getItem(key)
 
   if (savedId) {
     const response = await fetch(`/api/sessions/${savedId}`, { signal })
-    if (response.ok) return SessionBootstrapResponseSchema.parse(await response.json())
+    if (response.ok) {
+      return {
+        ...SessionBootstrapResponseSchema.parse(await response.json()),
+        viewReason: 'refresh'
+      }
+    }
 
     if (response.status !== 404) {
       throw new Error(await errorMessage(response, 'Не удалось восстановить сессию'))
@@ -43,14 +52,18 @@ export async function bootstrapSession({
   const response = await fetch('/api/sessions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ ...(variant ? { variant } : {}), utm }),
+    body: JSON.stringify({
+      ...(variant ? { variant } : {}),
+      utm,
+      clientTimestamp: new Date().toISOString()
+    }),
     signal
   })
   if (!response.ok) throw new Error(await errorMessage(response, 'Не удалось создать сессию'))
 
   const data = SessionBootstrapResponseSchema.parse(await response.json())
   window.localStorage.setItem(key, data.session.id)
-  return data
+  return { ...data, viewReason: 'initial' }
 }
 
 export async function submitSessionAnswer(

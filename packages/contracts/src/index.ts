@@ -344,7 +344,8 @@ export const FunnelSessionSchema = z.object({
 
 export const CreateSessionRequestSchema = z.object({
   variant: FunnelVariantIdSchema.optional(),
-  utm: z.record(z.string(), z.string()).optional()
+  utm: z.record(z.string(), z.string()).optional(),
+  clientTimestamp: z.iso.datetime().optional()
 })
 
 export const SubmitAnswerRequestSchema = z.object({
@@ -366,3 +367,83 @@ export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>
 export type SubmitAnswerRequest = z.infer<typeof SubmitAnswerRequestSchema>
 export type SessionStateResponse = z.infer<typeof SessionStateResponseSchema>
 export type SessionBootstrapResponse = z.infer<typeof SessionBootstrapResponseSchema>
+
+export const FunnelEventNameSchema = z.enum([
+  'session_started',
+  'step_viewed',
+  'answer_submitted',
+  'step_completed',
+  'back_clicked',
+  'result_viewed',
+  'cta_clicked'
+])
+
+export const FunnelEventPropertiesSchema = z.record(
+  z.string(),
+  z.union([z.string(), z.number(), z.boolean(), z.null()])
+)
+
+export const ClientFunnelEventSchema = z.object({
+  eventId: z.uuid(),
+  sessionId: z.uuid(),
+  name: FunnelEventNameSchema.exclude(['session_started']),
+  clientTimestamp: z.iso.datetime(),
+  stepId: NonEmptyStringSchema,
+  properties: FunnelEventPropertiesSchema.default({})
+})
+
+export const EventBatchRequestSchema = z.object({
+  events: z.array(z.unknown()).min(1).max(50)
+})
+
+export const RejectedEventSchema = z.object({
+  index: z.number().int().min(0),
+  eventId: z.string().optional(),
+  message: z.string()
+})
+
+export const EventBatchResponseSchema = z.object({
+  accepted: z.array(z.uuid()),
+  duplicates: z.array(z.uuid()),
+  rejected: z.array(RejectedEventSchema)
+})
+
+const AnalyticsTotalsSchema = z.object({
+  sessionsStarted: z.number().int().min(0),
+  resultReached: z.number().int().min(0),
+  ctaClicked: z.number().int().min(0),
+  resultRate: z.number().min(0),
+  ctaCtr: z.number().min(0)
+})
+
+const AnalyticsVariantSchema = AnalyticsTotalsSchema.extend({
+  variant: FunnelVariantIdSchema
+})
+
+const AnalyticsVersionSchema = AnalyticsTotalsSchema.extend({
+  version: z.number().int().positive()
+})
+
+const AnalyticsStepSchema = z.object({
+  stepId: NonEmptyStringSchema,
+  title: NonEmptyStringSchema,
+  viewed: z.number().int().min(0),
+  completed: z.number().int().min(0),
+  dropoff: z.number().int().min(0),
+  conversionRate: z.number().min(0)
+})
+
+export const AnalyticsResponseSchema = z.object({
+  totals: AnalyticsTotalsSchema,
+  variants: z.array(AnalyticsVariantSchema),
+  versions: z.array(AnalyticsVersionSchema),
+  steps: z.array(AnalyticsStepSchema),
+  campaigns: z.array(z.string()),
+  activeCampaign: z.string().nullable()
+})
+
+export type FunnelEventName = z.infer<typeof FunnelEventNameSchema>
+export type FunnelEventProperties = z.infer<typeof FunnelEventPropertiesSchema>
+export type ClientFunnelEvent = z.infer<typeof ClientFunnelEventSchema>
+export type EventBatchResponse = z.infer<typeof EventBatchResponseSchema>
+export type AnalyticsResponse = z.infer<typeof AnalyticsResponseSchema>

@@ -58,6 +58,27 @@ version and A/B variant, and saves the current step, route, answers and UTM para
 forward or back action. The browser keeps only the session id in `localStorage`, so a refresh restores
 the server-confirmed state. `?variant=A` and `?variant=B` remain available as explicit test overrides.
 
+## Events and analytics
+
+The runtime records the seven required events: `session_started`, `step_viewed`,
+`answer_submitted`, `step_completed`, `back_clicked`, `result_viewed` and `cta_clicked`.
+Client events are kept in a local outbox, delivered in batches to `POST /api/events/batch` and retried
+after failures. `event_id` is unique, so retrying the same batch does not create duplicates. One bad
+event is rejected independently and does not prevent valid neighbors from being stored.
+
+The backend adds the server timestamp, pinned funnel version, A/B variant and UTM values from the
+session before writing to SQLite. Raw answers are rejected from analytics properties. The dashboard
+at `/admin/analytics` counts unique sessions, not event rows, and supports step conversion, dropoff,
+result rate, CTA CTR, A/B and version comparison, plus filtering by `utm_campaign`.
+
+Aggregation rules:
+
+- started sessions: distinct `session_id` with `session_started`;
+- step reach: distinct `session_id` with `step_viewed` for the step;
+- step completion: distinct `session_id` with `step_completed` for the step;
+- result rate: distinct result viewers divided by distinct started sessions;
+- CTA CTR: distinct CTA clickers divided by distinct result viewers.
+
 ## A/B experiment
 
 The first experiment checks whether asking for the planned amount before the financial goal makes

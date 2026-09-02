@@ -1,10 +1,16 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import type { FunnelVariantId, SubmitAnswerRequest } from '@funnel/contracts'
+import type {
+  FunnelEventProperties,
+  FunnelStepConfig,
+  FunnelVariantId,
+  SubmitAnswerRequest
+} from '@funnel/contracts'
 import { getProgress, getStep } from '@funnel/engine'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { bootstrapSession, moveSessionBack, submitSessionAnswer } from '../api/session'
+import { flushEvents, trackEvent } from '../analytics/event-queue'
 import { FunnelLayout } from '../components/funnel/FunnelLayout'
 import { FunnelStepRenderer } from '../components/funnel/FunnelStepRenderer'
 import { ProgressBar } from '../components/ui/ProgressBar'
@@ -18,6 +24,15 @@ function collectUtm(searchParams: URLSearchParams): Record<string, string> {
   return Object.fromEntries(
     [...searchParams.entries()].filter(([key, value]) => key.startsWith('utm_') && value)
   )
+}
+
+function answerProperties(step: FunnelStepConfig, answer: unknown): FunnelEventProperties | null {
+  if (step.type === 'info' || step.type === 'result') return null
+
+  return {
+    answer_type: step.type,
+    ...(Array.isArray(answer) ? { selected_count: answer.length } : {})
+  }
 }
 
 function FunnelRuntime() {
@@ -34,20 +49,79 @@ function FunnelRuntime() {
   const setError = useFunnelRuntimeStore((state) => state.setError)
 
   const submitMutation = useMutation({
-    mutationFn: (input: SubmitAnswerRequest) => {
+    mutationFn: (input: {
+      request: SubmitAnswerRequest
+      clientTimestamp: string
+      answerProperties: FunnelEventProperties | null
+    }) => {
       if (!session) throw new Error('Сессия ещё не готова')
-      return submitSessionAnswer(session.id, input)
+      return submitSessionAnswer(session.id, input.request)
     },
-    onSuccess: ({ session: updatedSession }) => applySession(updatedSession),
+    onSuccess: ({ session: updatedSession }, input) => {
+      if (!session || !funnel) return
+
+      if (input.answerProperties) {
+        trackEvent({
+          sessionId: session.id,
+          name: 'answer_submitted',
+          clientTimestamp: input.clientTimestamp,
+          stepId: input.request.stepId,
+          properties: input.answerProperties
+        })
+      }
+      trackEvent({
+        sessionId: session.id,
+        name: 'step_completed',
+        clientTimestamp: input.clientTimestamp,
+        stepId: input.request.stepId,
+        properties: { next_step_id: updatedSession.currentStepId }
+      })
+      applySession(updatedSession)
+      trackEvent({
+        sessionId: session.id,
+        name: 'step_viewed',
+        stepId: updatedSession.currentStepId,
+        properties: { view_reason: 'forward' }
+      })
+      if (getStep(funnel, updatedSession.currentStepId).type === 'result') {
+        trackEvent({
+          sessionId: session.id,
+          name: 'result_viewed',
+          stepId: updatedSession.currentStepId
+        })
+      }
+    },
     onError: (mutationError) => setError(mutationError.message)
   })
 
   const backMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (input: { clientTimestamp: string; fromStepId: string }) => {
       if (!session) throw new Error('Сессия ещё не готова')
+      if (input.fromStepId !== session.currentStepId) {
+        throw new Error('Шаг уже изменился')
+      }
       return moveSessionBack(session.id)
     },
-    onSuccess: ({ session: updatedSession }) => applySession(updatedSession),
+    onSuccess: ({ session: updatedSession }, input) => {
+      if (!session) return
+      trackEvent({
+        sessionId: session.id,
+        name: 'back_clicked',
+        clientTimestamp: input.clientTimestamp,
+        stepId: input.fromStepId,
+        properties: {
+          from_step_id: input.fromStepId,
+          to_step_id: updatedSession.currentStepId
+        }
+      })
+      applySession(updatedSession)
+      trackEvent({
+        sessionId: session.id,
+        name: 'step_viewed',
+        stepId: updatedSession.currentStepId,
+        properties: { view_reason: 'back' }
+      })
+    },
     onError: (mutationError) => setError(mutationError.message)
   })
 
@@ -73,11 +147,32 @@ function FunnelRuntime() {
           if (!validation.success) return
 
           submitMutation.mutate({
-            stepId: currentStepId,
-            ...(validation.data !== undefined ? { answer: validation.data } : {})
+            request: {
+              stepId: currentStepId,
+              ...(validation.data !== undefined ? { answer: validation.data } : {})
+            },
+            clientTimestamp: new Date().toISOString(),
+            answerProperties: answerProperties(step, validation.data)
           })
         }}
-        onBack={() => backMutation.mutate()}
+        onBack={() =>
+          backMutation.mutate({
+            clientTimestamp: new Date().toISOString(),
+            fromStepId: currentStepId
+          })
+        }
+        onCta={() => {
+          trackEvent({
+            sessionId: session.id,
+            name: 'cta_clicked',
+            stepId: currentStepId,
+            properties: { cta_id: 'primary' }
+          })
+          void flushEvents()
+          if (step.type === 'result') {
+            window.open(step.cta.href, '_blank', 'noopener,noreferrer')
+          }
+        }}
       />
     </FunnelLayout>
   )
@@ -87,6 +182,7 @@ export function FunnelPage() {
   const [searchParams] = useSearchParams()
   const variant = requestedVariant(searchParams.get('variant'))
   const hydrate = useFunnelRuntimeStore((state) => state.hydrate)
+  const trackedBootstrap = useRef<string | null>(null)
   const utm = collectUtm(searchParams)
   const sessionQuery = useQuery({
     queryKey: ['funnel-session', variant ?? 'assigned'],
@@ -95,7 +191,26 @@ export function FunnelPage() {
   })
 
   useEffect(() => {
-    if (sessionQuery.data) hydrate(sessionQuery.data)
+    if (!sessionQuery.data) return
+    hydrate(sessionQuery.data)
+
+    const { session, config, viewReason } = sessionQuery.data
+    if (trackedBootstrap.current === session.id) return
+    trackedBootstrap.current = session.id
+
+    trackEvent({
+      sessionId: session.id,
+      name: 'step_viewed',
+      stepId: session.currentStepId,
+      properties: { view_reason: viewReason }
+    })
+    if (config.steps.find((step) => step.id === session.currentStepId)?.type === 'result') {
+      trackEvent({
+        sessionId: session.id,
+        name: 'result_viewed',
+        stepId: session.currentStepId
+      })
+    }
   }, [hydrate, sessionQuery.data])
 
   return (

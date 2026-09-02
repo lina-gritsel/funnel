@@ -17,6 +17,7 @@ type FunnelStepRendererProps = {
   onDraftChange: (value: FunnelAnswer) => void
   onContinue: () => void
   onBack: () => void
+  onCta: () => void
 }
 
 export function FunnelStepRenderer({
@@ -27,7 +28,8 @@ export function FunnelStepRenderer({
   isLoading,
   onDraftChange,
   onContinue,
-  onBack
+  onBack,
+  onCta
 }: FunnelStepRendererProps) {
   if (step.type === 'result') {
     return (
@@ -35,7 +37,7 @@ export function FunnelStepRenderer({
         title={step.title}
         body={step.description ?? ''}
         ctaLabel={step.cta.label}
-        onCta={() => window.open(step.cta.href, '_blank', 'noopener,noreferrer')}
+        onCta={onCta}
       />
     )
   }

@@ -1,5 +1,9 @@
 import cors from '@fastify/cors'
-import { CreateSessionRequestSchema, SubmitAnswerRequestSchema } from '@funnel/contracts'
+import {
+  CreateSessionRequestSchema,
+  EventBatchRequestSchema,
+  SubmitAnswerRequestSchema
+} from '@funnel/contracts'
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify'
 
 import { loadActiveFunnelConfig } from './funnel-config.js'
@@ -32,9 +36,14 @@ function sendSessionError(error: unknown, reply: FastifyReply, app: FastifyInsta
 
 export function buildApp(options: AppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true })
-  const sessions = new SessionService(options)
+  const database = createDatabase(options.databasePath)
+  const events = new EventService(database)
+  const sessions = new SessionService(database, events, {
+    ...(options.random ? { random: options.random } : {})
+  })
+  const analytics = new AnalyticsService(database)
 
-  app.addHook('onClose', async () => sessions.close())
+  app.addHook('onClose', async () => database.close())
 
   void app.register(cors, {
     origin: process.env.WEB_ORIGIN ?? 'http://localhost:5173'
@@ -99,5 +108,23 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     }
   )
 
+  app.post('/api/events/batch', async (request, reply) => {
+    const input = EventBatchRequestSchema.safeParse(request.body)
+    if (!input.success) return reply.code(400).send({ message: 'Invalid event batch' })
+    return events.ingest(input.data.events)
+  })
+
+  app.get<{ Querystring: { utmCampaign?: string } }>('/api/analytics', async (request, reply) => {
+    try {
+      return await analytics.get(request.query.utmCampaign)
+    } catch (error) {
+      app.log.error(error)
+      return reply.code(500).send({ message: 'Analytics is unavailable' })
+    }
+  })
+
   return app
 }
+import { AnalyticsService } from './analytics-service.js'
+import { createDatabase } from './database.js'
+import { EventService } from './event-service.js'
