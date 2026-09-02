@@ -20,7 +20,7 @@ describe('funnel config', () => {
     firstStep.next = { type: 'direct', stepId: 'missing-step' }
 
     expect(() => parseFunnelConfig(config)).toThrow(
-      'transition references unknown step missing-step'
+      'Transition references unknown step missing-step'
     )
   })
 })

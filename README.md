@@ -17,6 +17,8 @@ npm run dev
 The development servers start at:
 
 - Web: http://localhost:5173
+- Funnel variant A: http://localhost:5173/?variant=A
+- Funnel variant B: http://localhost:5173/?variant=B
 - Config admin: http://localhost:5173/admin
 - Analytics admin: http://localhost:5173/admin/analytics
 - UI foundation: http://localhost:5173/dev/ui

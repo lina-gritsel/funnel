@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
+  "dependencies": {
+    "@funnel/contracts": "0.1.0",
+    "zod": "^4.5.4"
+  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests"
