@@ -323,3 +323,46 @@ export type FunnelStepOverride = z.infer<typeof FunnelStepOverrideSchema>
 export type FunnelVariantConfig = z.infer<typeof FunnelVariantConfigSchema>
 export type FunnelConfig = z.infer<typeof FunnelConfigSchema>
 export type FunnelAnswer = string | string[] | number
+
+export const FunnelAnswerSchema = z.union([z.string(), z.number(), z.array(z.string())])
+export const FunnelAnswersSchema = z.record(z.string(), FunnelAnswerSchema)
+
+export const FunnelSessionSchema = z.object({
+  id: z.uuid(),
+  funnelId: NonEmptyStringSchema,
+  version: z.number().int().positive(),
+  variant: FunnelVariantIdSchema,
+  currentStepId: NonEmptyStringSchema,
+  trail: z.array(NonEmptyStringSchema).min(1),
+  cursor: z.number().int().min(0),
+  answers: FunnelAnswersSchema,
+  utm: z.record(z.string(), z.string()),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  completedAt: z.iso.datetime().nullable()
+})
+
+export const CreateSessionRequestSchema = z.object({
+  variant: FunnelVariantIdSchema.optional(),
+  utm: z.record(z.string(), z.string()).optional()
+})
+
+export const SubmitAnswerRequestSchema = z.object({
+  stepId: NonEmptyStringSchema,
+  answer: FunnelAnswerSchema.optional()
+})
+
+export const SessionStateResponseSchema = z.object({
+  session: FunnelSessionSchema
+})
+
+export const SessionBootstrapResponseSchema = SessionStateResponseSchema.extend({
+  config: FunnelConfigSchema
+})
+
+export type FunnelAnswers = z.infer<typeof FunnelAnswersSchema>
+export type FunnelSession = z.infer<typeof FunnelSessionSchema>
+export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>
+export type SubmitAnswerRequest = z.infer<typeof SubmitAnswerRequestSchema>
+export type SessionStateResponse = z.infer<typeof SessionStateResponseSchema>
+export type SessionBootstrapResponse = z.infer<typeof SessionBootstrapResponseSchema>

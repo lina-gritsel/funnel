@@ -51,6 +51,13 @@ The active `configs/funnel-v1.json` contains seven screens, a conditional branch
 The backend validates it before returning it to the frontend. The internal `/admin` page is a
 read-only view of the active configuration; publishing and rollback are implemented separately.
 
+## Sessions
+
+The API stores funnel sessions in the local `data/funnel.db` SQLite file. A session pins the funnel
+version and A/B variant, and saves the current step, route, answers and UTM parameters after every
+forward or back action. The browser keeps only the session id in `localStorage`, so a refresh restores
+the server-confirmed state. `?variant=A` and `?variant=B` remain available as explicit test overrides.
+
 ## A/B experiment
 
 The first experiment checks whether asking for the planned amount before the financial goal makes

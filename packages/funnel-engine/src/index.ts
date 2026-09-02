@@ -1,5 +1,6 @@
 import type {
   FunnelAnswer,
+  FunnelAnswers,
   FunnelCondition,
   FunnelConfig,
   FunnelStepConfig,
@@ -8,8 +9,6 @@ import type {
   FunnelVariantId
 } from '@funnel/contracts'
 import { z } from 'zod'
-
-export type FunnelAnswers = Record<string, FunnelAnswer>
 
 export type ResolvedFunnel = {
   id: string
@@ -27,6 +26,15 @@ export type FunnelProgress = {
 
 export type AnswerValidationResult =
   { success: true; data?: FunnelAnswer } | { success: false; error: string }
+
+export type FunnelRuntimeSnapshot = {
+  trail: string[]
+  cursor: number
+  answers: FunnelAnswers
+}
+
+export type AdvanceRuntimeResult =
+  { success: true; snapshot: FunnelRuntimeSnapshot } | { success: false; error: string }
 
 function applyOverride(step: FunnelStepConfig, override?: FunnelStepOverride): FunnelStepConfig {
   if (!override) return step
@@ -207,4 +215,55 @@ export function validateStepAnswer(step: FunnelStepConfig, value: unknown): Answ
   return result.data === undefined
     ? { success: true }
     : { success: true, data: result.data as FunnelAnswer }
+}
+
+function answersEqual(left: FunnelAnswer | undefined, right: FunnelAnswer | undefined) {
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => value === right[index])
+  }
+
+  return left === right
+}
+
+export function advanceRuntime(
+  funnel: ResolvedFunnel,
+  snapshot: FunnelRuntimeSnapshot,
+  value: unknown
+): AdvanceRuntimeResult {
+  const currentStepId = snapshot.trail[snapshot.cursor]
+  if (!currentStepId) return { success: false, error: 'Текущий шаг не найден' }
+
+  const validation = validateStepAnswer(getStep(funnel, currentStepId), value)
+  if (!validation.success) return validation
+
+  const answers = { ...snapshot.answers }
+  const previousAnswer = answers[currentStepId]
+
+  if (validation.data === undefined) delete answers[currentStepId]
+  else answers[currentStepId] = validation.data
+
+  if (!answersEqual(previousAnswer, validation.data)) {
+    snapshot.trail.slice(snapshot.cursor + 1).forEach((stepId) => delete answers[stepId])
+  }
+
+  const nextStepId = resolveNextStepId(funnel, currentStepId, answers)
+  if (!nextStepId) {
+    return { success: true, snapshot: { ...snapshot, answers } }
+  }
+
+  return {
+    success: true,
+    snapshot: {
+      trail: [...snapshot.trail.slice(0, snapshot.cursor + 1), nextStepId],
+      cursor: snapshot.cursor + 1,
+      answers
+    }
+  }
+}
+
+export function moveRuntimeBack(snapshot: FunnelRuntimeSnapshot): FunnelRuntimeSnapshot {
+  return {
+    ...snapshot,
+    cursor: Math.max(0, snapshot.cursor - 1)
+  }
 }

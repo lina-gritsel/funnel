@@ -13,6 +13,7 @@ type FunnelStepRendererProps = {
   draft: FunnelAnswer | undefined
   error: string | null
   canGoBack: boolean
+  isLoading: boolean
   onDraftChange: (value: FunnelAnswer) => void
   onContinue: () => void
   onBack: () => void
@@ -23,6 +24,7 @@ export function FunnelStepRenderer({
   draft,
   error,
   canGoBack,
+  isLoading,
   onDraftChange,
   onContinue,
   onBack
@@ -90,6 +92,8 @@ export function FunnelStepRenderer({
 
       <StepActions
         continueLabel={step.type === 'info' ? 'Начать' : 'Продолжить'}
+        disabled={isLoading}
+        isLoading={isLoading}
         onContinue={onContinue}
         {...(canGoBack ? { onBack } : {})}
       />

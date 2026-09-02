@@ -18,7 +18,7 @@ export function StepActions({
   return (
     <div className="mt-8 flex items-center justify-between gap-3 border-t border-line pt-5">
       {onBack ? (
-        <Button type="button" variant="ghost" onClick={onBack}>
+        <Button type="button" variant="ghost" disabled={disabled} onClick={onBack}>
           Назад
         </Button>
       ) : (

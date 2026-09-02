@@ -27,7 +27,11 @@ export function parseFunnelConfig(value: unknown): FunnelConfig {
   return result.data
 }
 
-export async function loadActiveFunnelConfig(): Promise<FunnelConfig> {
-  const source = await readFile(resolve(configDirectory, 'funnel-v1.json'), 'utf8')
+export async function loadFunnelConfig(version: number): Promise<FunnelConfig> {
+  const source = await readFile(resolve(configDirectory, `funnel-v${version}.json`), 'utf8')
   return parseFunnelConfig(JSON.parse(source) as unknown)
+}
+
+export async function loadActiveFunnelConfig(): Promise<FunnelConfig> {
+  return loadFunnelConfig(1)
 }

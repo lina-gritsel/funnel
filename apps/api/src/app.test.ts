@@ -10,7 +10,7 @@ afterEach(async () => {
 
 describe('health endpoint', () => {
   it('reports that the API is available', async () => {
-    const app = buildApp()
+    const app = buildApp({ databasePath: ':memory:' })
     apps.push(app)
 
     const response = await app.inject({
@@ -28,7 +28,7 @@ describe('health endpoint', () => {
 
 describe('active funnel endpoint', () => {
   it('returns the validated active configuration', async () => {
-    const app = buildApp()
+    const app = buildApp({ databasePath: ':memory:' })
     apps.push(app)
 
     const response = await app.inject({
