@@ -17,12 +17,15 @@ npm run dev
 The development servers start at:
 
 - Web: http://localhost:5173
+- UI foundation: http://localhost:5173/dev/ui
 - API: http://localhost:3001
 
 Additional commands:
 
 ```bash
 npm run typecheck
+npm run lint
+npm run format
 npm run test
 npm run build
 npm run start
