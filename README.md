@@ -28,6 +28,7 @@ The development servers start at:
 Additional commands:
 
 ```bash
+npm run generate:traffic
 npm run typecheck
 npm run lint
 npm run format
@@ -41,10 +42,10 @@ npm run start
 ```text
 apps/web                 React frontend
 apps/api                 Fastify backend
+apps/api/src/generate-traffic.ts  Synthetic traffic command
 packages/contracts       Shared API/config contracts
 packages/funnel-engine   Framework-independent funnel logic
 configs                  Versioned sample funnel configurations
-scripts                  Project automation and traffic generation
 ```
 
 The active `configs/funnel-v1.json` contains seven screens, a conditional branch and A/B variants.
@@ -78,6 +79,28 @@ Aggregation rules:
 - step completion: distinct `session_id` with `step_completed` for the step;
 - result rate: distinct result viewers divided by distinct started sessions;
 - CTA CTR: distinct CTA clickers divided by distinct result viewers.
+
+## Synthetic traffic
+
+With the API running, populate the dashboard with a deterministic set of 100 sessions:
+
+```bash
+npm run generate:traffic
+```
+
+The generator uses the public HTTP API rather than writing to SQLite directly. It creates five UTM
+campaigns with 20 sessions each, splits traffic evenly between variants A and B, covers both funnel
+branches and dropoffs at different steps, and includes repeated views, back navigation, batches,
+duplicate delivery and out-of-order events. It appends data without clearing existing sessions.
+
+The expected increment is 100 started sessions, 50 result viewers and 30 CTA clickers. Every
+synthetic campaign adds 20 sessions, 10 result viewers and 6 CTA clickers. After delivery, the command
+checks overall, per-variant, per-campaign and per-step analytics and exits with an error if the numbers
+do not match. Use `FUNNEL_API_URL` to target another API origin:
+
+```bash
+FUNNEL_API_URL=http://localhost:3001 npm run generate:traffic
+```
 
 ## A/B experiment
 
