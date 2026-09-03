@@ -77,12 +77,48 @@ test('versioned A/B funnel survives refresh, publish and rollback', async ({ bro
     await admin.getByRole('button', { name: 'Войти' }).click()
     await expect(admin.getByRole('heading', { name: 'Подбор финансового сценария' })).toBeVisible()
 
+    await expect(admin.getByRole('heading', { name: 'Как изменить воронку' })).toBeVisible()
+    await expect(admin.getByRole('button', { name: 'Проверить конфигурацию' })).toBeDisabled()
+    await expect(admin.getByRole('button', { name: 'Сохранить черновик' })).toBeDisabled()
+    await expect(admin.getByRole('button', { name: 'Откатить версию' })).toBeDisabled()
+    const downloadPromise = admin.waitForEvent('download')
+    await admin.getByRole('button', { name: 'Скачать шаблон v2' }).click()
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toBe('funnel-v2.json')
+    await admin.getByLabel('Новая конфигурация').setInputFiles({
+      name: 'broken.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from('{broken')
+    })
+    await admin.getByRole('button', { name: 'Проверить конфигурацию' }).click()
+    await expect(admin.getByRole('alert')).toContainText('Не удалось прочитать JSON')
+    await expect(admin.getByRole('button', { name: 'Сохранить черновик' })).toBeDisabled()
+
+    await admin.getByLabel('Новая конфигурация').setInputFiles('configs/funnel-v2.json')
+    await expect(admin.getByRole('alert')).toHaveCount(0)
+    await admin.getByRole('button', { name: 'Проверить конфигурацию' }).click()
+    await expect(admin.getByText(/Проверка пройдена:/)).toBeVisible()
+    await admin.getByLabel('Новая конфигурация').setInputFiles('configs/funnel-v1.json')
+    await expect(admin.getByRole('button', { name: 'Сохранить черновик' })).toBeDisabled()
+    await expect(admin.getByText(/Проверка пройдена:/)).toHaveCount(0)
+    await admin.getByRole('button', { name: 'Проверить конфигурацию' }).click()
+    await expect(admin.getByRole('alert')).toContainText('Следующая версия — v2')
     await admin.getByLabel('Новая конфигурация').setInputFiles('configs/funnel-v2.json')
     await admin.getByRole('button', { name: 'Проверить конфигурацию' }).click()
     await expect(admin.getByText(/Проверка пройдена:/)).toBeVisible()
     await admin.getByRole('button', { name: 'Сохранить черновик' }).click()
-    await expect(admin.getByRole('button', { name: 'Опубликовать' })).toBeVisible()
-    await admin.getByRole('button', { name: 'Опубликовать' }).click()
+    await expect(admin.getByRole('button', { name: 'Опубликовать v2', exact: true })).toBeVisible()
+    await expect(admin.getByRole('status')).toContainText('На сайте пока ничего не изменилось')
+    await admin.getByRole('button', { name: 'Опубликовать v2', exact: true }).click()
+    await admin.getByRole('button', { name: 'Отмена', exact: true }).click()
+    await expect(admin.getByRole('region', { name: 'Подтверждение изменения версии' })).toHaveCount(
+      0
+    )
+    await expect(
+      admin.getByRole('heading', { name: 'Подбор финансового сценария', exact: true })
+    ).toBeVisible()
+    await admin.getByRole('button', { name: 'Опубликовать v2', exact: true }).click()
+    await admin.getByRole('button', { name: 'Подтвердить публикацию' }).click()
     await expect(
       admin.getByRole('heading', {
         name: 'Подбор финансового сценария — горизонт планирования'
@@ -130,6 +166,10 @@ test('versioned A/B funnel survives refresh, publish and rollback', async ({ bro
 
   await test.step('rollback to v1 and use it for the next session', async () => {
     await admin.getByRole('button', { name: 'Откатить версию' }).click()
+    await expect(
+      admin.getByRole('region', { name: 'Подтверждение изменения версии' })
+    ).toContainText('Вернуть на сайт версию v1?')
+    await admin.getByRole('button', { name: 'Подтвердить откат' }).click()
     await expect(admin.getByRole('heading', { name: 'Подбор финансового сценария' })).toBeVisible()
 
     const rollbackContext = await browser.newContext()

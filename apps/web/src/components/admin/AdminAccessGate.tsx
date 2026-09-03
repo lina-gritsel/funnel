@@ -58,11 +58,12 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
           </p>
           <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">Вход в админку</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
-            Введите токен администратора, настроенный на сервере.
+            Здесь можно менять версии воронки и смотреть аналитику. Введите ключ доступа, который
+            вам передал владелец проекта. Регистрация не нужна.
           </p>
           <form className="mt-7" onSubmit={submit}>
             <label className="block text-sm font-semibold" htmlFor="admin-token">
-              Admin token
+              Ключ доступа (Admin token)
             </label>
             <input
               id="admin-token"

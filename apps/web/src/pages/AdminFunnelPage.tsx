@@ -22,12 +22,27 @@ const stepTypeLabel: Record<FunnelStepType, string> = {
 
 const variantIds: FunnelVariantId[] = ['A', 'B']
 
-function transitionLabel(transition: FunnelTransition | undefined) {
+function transitionLabel(transition: FunnelTransition | undefined, config: FunnelConfig) {
+  const title = (id: string) => config.steps.find((step) => step.id === id)?.title ?? id
   if (!transition) return 'Финальный экран'
-  if (transition.type === 'direct') return `Далее → ${transition.stepId}`
+  if (transition.type === 'direct') return `Далее: «${title(transition.stepId)}»`
 
-  const branches = transition.rules.map((rule) => `${rule.when.value} → ${rule.stepId}`)
-  return `${branches.join(' · ')} · иначе → ${transition.fallbackStepId}`
+  const operators = {
+    equals: 'ответ',
+    includes: 'выбрано',
+    'greater-than': 'больше',
+    'less-than': 'меньше'
+  }
+  const branches = transition.rules.map((rule) => {
+    const question = config.steps.find((step) => step.id === rule.when.stepId)
+    const answer =
+      question && 'options' in question
+        ? (question.options.find((option) => option.value === rule.when.value)?.label ??
+          rule.when.value)
+        : rule.when.value
+    return `${operators[rule.when.operator]} «${answer}» → «${title(rule.stepId)}»`
+  })
+  return `Путь зависит от ответа: ${branches.join(' · ')} · иначе → ${title(transition.fallbackStepId)}`
 }
 
 function FunnelOverview({
@@ -45,13 +60,18 @@ function FunnelOverview({
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="inline-flex items-center gap-2 font-semibold text-accent">
             <span className="h-2 w-2 rounded-full bg-success" aria-hidden="true" />
-            Активная версия
+            Сейчас на сайте · v{config.version}
           </span>
           <span className="text-muted">Опубликована {config.publishedAt?.slice(0, 10)}</span>
         </div>
-        <h1 className="mt-5 max-w-3xl text-4xl font-semibold tracking-[-0.045em] sm:text-5xl">
+        <h1 className="mt-5 max-w-3xl text-3xl font-semibold tracking-[-0.035em] sm:text-4xl">
           {config.name}
         </h1>
+        <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
+          Здесь вы управляете содержимым и версиями воронки. Чтобы посмотреть результаты
+          прохождений, откройте раздел «Аналитика». Загрузка файла и сохранение черновика не меняют
+          сайт — для этого нужна публикация.
+        </p>
         <div className="mt-7 flex flex-wrap gap-x-8 gap-y-3 text-sm">
           <p>
             <span className="text-muted">Версия</span>{' '}
@@ -67,19 +87,23 @@ function FunnelOverview({
           </p>
           <p>
             <span className="text-muted">Старт</span>{' '}
-            <strong className="font-semibold">{config.entryStepId}</strong>
+            <strong className="font-semibold">
+              {config.steps.find((step) => step.id === config.entryStepId)?.title ??
+                config.entryStepId}
+            </strong>
           </p>
         </div>
       </section>
 
-      <FunnelVersionManager data={versions} />
+      <FunnelVersionManager data={versions} config={config} />
 
       <section className="grid gap-8 border-b border-line py-10 sm:py-12 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-16">
         <div>
           <p className="text-xs font-bold tracking-[0.12em] text-accent uppercase">Эксперимент</p>
           <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">Варианты A и B</h2>
           <p className="mt-2 text-sm leading-6 text-muted">
-            Распределение и отличия внутри одной версии.
+            Две версии сценария внутри одной воронки. Новому посетителю назначается A или B; при
+            возвращении его вариант сохраняется. Результаты сравниваются в аналитике.
           </p>
         </div>
         <div>
@@ -94,7 +118,11 @@ function FunnelOverview({
               <dt className="text-xs font-semibold tracking-[0.08em] text-muted uppercase">
                 Основная метрика
               </dt>
-              <dd className="mt-2 font-medium">{config.experiment.primaryMetric}</dd>
+              <dd className="mt-2 font-medium">
+                {config.experiment.primaryMetric === 'result_completion_rate'
+                  ? 'Доля посетителей, дошедших до результата'
+                  : config.experiment.primaryMetric}
+              </dd>
             </div>
           </dl>
           <div className="divide-y divide-line">
@@ -115,13 +143,13 @@ function FunnelOverview({
                     <p className="mt-1 text-sm leading-6 text-muted">{variant.description}</p>
                     <p className="mt-3 text-xs font-medium text-muted">
                       {changedSteps.length > 0
-                        ? `Изменённые шаги: ${changedSteps.join(', ')}`
+                        ? `Изменённые экраны: ${changedSteps.map((id) => config.steps.find((step) => step.id === id)?.title ?? id).join('; ')}`
                         : 'Использует базовую конфигурацию'}
                     </p>
                   </div>
                   <p className="text-sm sm:text-right">
                     <strong className="text-xl font-semibold">{variant.weight}%</strong>
-                    <span className="block text-muted">трафика</span>
+                    <span className="block text-muted">новых посетителей</span>
                   </p>
                 </div>
               )
@@ -135,12 +163,13 @@ function FunnelOverview({
           <p className="text-xs font-bold tracking-[0.12em] text-accent uppercase">Структура</p>
           <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">Карта экранов</h2>
           <p className="mt-2 text-sm leading-6 text-muted">
-            Базовый порядок и условные переходы. Вариант B применяет отмеченные выше изменения.
+            Список экранов базового сценария, а не обязательный путь каждого посетителя. При
+            ветвлении следующий экран зависит от ответа. Варианты A/B могут менять маршрут.
           </p>
         </div>
         <ol className="divide-y divide-line border-y border-line">
           {config.steps.map((step, index) => (
-            <StepRow key={step.id} step={step} index={index} />
+            <StepRow key={step.id} step={step} index={index} config={config} />
           ))}
         </ol>
       </section>
@@ -150,10 +179,11 @@ function FunnelOverview({
           <p className="text-xs font-bold tracking-[0.12em] text-accent uppercase">Источник</p>
           <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">JSON-конфигурация</h2>
           <p className="mt-2 text-sm leading-6 text-muted">
-            Именно этот документ загрузил и проверил backend.
+            Технический файл активной версии — для разработчика. Для обычной работы с публикацией
+            открывать его не нужно.
           </p>
         </div>
-        <details className="group overflow-hidden rounded-panel border border-line bg-surface shadow-panel">
+        <details className="group self-start overflow-hidden rounded-control border border-line bg-surface">
           <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 text-sm font-semibold outline-none transition-colors hover:bg-accent-soft focus-visible:bg-accent-soft sm:px-6">
             Показать исходный JSON
             <span
@@ -172,7 +202,15 @@ function FunnelOverview({
   )
 }
 
-function StepRow({ step, index }: { step: FunnelStepConfig; index: number }) {
+function StepRow({
+  step,
+  index,
+  config
+}: {
+  step: FunnelStepConfig
+  index: number
+  config: FunnelConfig
+}) {
   const isBranch = step.next?.type === 'branch'
 
   return (
@@ -193,7 +231,7 @@ function StepRow({ step, index }: { step: FunnelStepConfig; index: number }) {
             </span>
           ) : null}
         </div>
-        <p className="mt-2 text-sm leading-5 text-muted">{transitionLabel(step.next)}</p>
+        <p className="mt-2 text-sm leading-5 text-muted">{transitionLabel(step.next, config)}</p>
       </div>
     </li>
   )
@@ -222,7 +260,10 @@ export function AdminFunnelPage() {
       {isError ? (
         <div className="border-l-2 border-danger py-2 pl-4">
           <h1 className="font-semibold">Не удалось получить конфигурацию</h1>
-          <p className="mt-1 text-sm text-muted">Проверьте, что backend доступен.</p>
+          <p className="mt-1 text-sm text-muted">
+            Обновите страницу. Если ошибка повторится, сообщите разработчику: сервер не вернул
+            настройки воронки.
+          </p>
         </div>
       ) : null}
 

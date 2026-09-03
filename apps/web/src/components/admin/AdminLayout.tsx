@@ -26,9 +26,14 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               Funnel Runtime
             </Link>
             <div className="flex items-center gap-5">
-              <Link className="text-sm text-muted transition-colors hover:text-ink" to="/dev/ui">
-                UI foundation
-              </Link>
+              <a
+                className="text-sm text-muted transition-colors hover:text-ink"
+                href="/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Открыть воронку ↗
+              </a>
               <button
                 type="button"
                 className="text-sm text-muted transition-colors hover:text-ink"
