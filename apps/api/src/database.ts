@@ -16,6 +16,16 @@ export function createDatabase(databasePath = defaultDatabasePath) {
   database.pragma('foreign_keys = ON')
   if (databasePath !== ':memory:') database.pragma('journal_mode = WAL')
   database.exec(`
+    CREATE TABLE IF NOT EXISTS funnel_versions (
+      funnel_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('draft', 'active', 'archived')),
+      config_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      published_at TEXT,
+      PRIMARY KEY (funnel_id, version)
+    );
+
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       funnel_id TEXT NOT NULL,
@@ -50,6 +60,8 @@ export function createDatabase(databasePath = defaultDatabasePath) {
     CREATE INDEX IF NOT EXISTS events_session_id_idx ON events(session_id);
     CREATE INDEX IF NOT EXISTS events_name_idx ON events(event_name);
     CREATE INDEX IF NOT EXISTS events_campaign_idx ON events(utm_campaign);
+    CREATE UNIQUE INDEX IF NOT EXISTS funnel_versions_active_idx
+      ON funnel_versions(funnel_id) WHERE status = 'active';
   `)
   return database
 }

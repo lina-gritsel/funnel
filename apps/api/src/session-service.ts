@@ -14,7 +14,7 @@ import { advanceRuntime, getStep, moveRuntimeBack, resolveVariant } from '@funne
 
 import type { AppDatabase } from './database.js'
 import type { EventService } from './event-service.js'
-import { loadActiveFunnelConfig, loadFunnelConfig } from './funnel-config.js'
+import type { FunnelConfigService } from './funnel-config.js'
 
 type SessionRow = {
   id: string
@@ -87,13 +87,14 @@ export class SessionService {
   constructor(
     private readonly database: AppDatabase,
     private readonly events: EventService,
+    private readonly configs: FunnelConfigService,
     options: SessionServiceOptions = {}
   ) {
     this.random = options.random ?? Math.random
   }
 
   async create(input: CreateSessionRequest): Promise<SessionBootstrapResponse> {
-    const config = await loadActiveFunnelConfig()
+    const config = this.configs.getActive()
     const variant = input.variant ?? pickVariant(config, this.random)
     const funnel = resolveVariant(config, variant)
     const timestamp = new Date().toISOString()
@@ -145,7 +146,7 @@ export class SessionService {
 
   async get(id: string): Promise<SessionBootstrapResponse> {
     const session = this.getSession(id)
-    const config = await loadFunnelConfig(session.version)
+    const config = this.configs.getVersion(session.version)
     return { session, config }
   }
 
@@ -155,7 +156,7 @@ export class SessionService {
       throw new SessionConflictError('Session has already moved to another step')
     }
 
-    const config = await loadFunnelConfig(session.version)
+    const config = this.configs.getVersion(session.version)
     const funnel = resolveVariant(config, session.variant)
     const result = advanceRuntime(
       funnel,

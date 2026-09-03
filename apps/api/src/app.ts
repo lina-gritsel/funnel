@@ -1,12 +1,21 @@
 import cors from '@fastify/cors'
 import {
+  CreateFunnelVersionRequestSchema,
   CreateSessionRequestSchema,
   EventBatchRequestSchema,
   SubmitAnswerRequestSchema
 } from '@funnel/contracts'
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify'
 
-import { loadActiveFunnelConfig } from './funnel-config.js'
+import { AnalyticsService } from './analytics-service.js'
+import { createDatabase } from './database.js'
+import { EventService } from './event-service.js'
+import {
+  FunnelConfigConflictError,
+  FunnelConfigNotFoundError,
+  FunnelConfigService,
+  FunnelConfigValidationError
+} from './funnel-config.js'
 import {
   SessionConflictError,
   SessionInputError,
@@ -34,14 +43,35 @@ function sendSessionError(error: unknown, reply: FastifyReply, app: FastifyInsta
   return reply.code(500).send({ message: 'Session is unavailable' })
 }
 
+function sendConfigError(error: unknown, reply: FastifyReply, app: FastifyInstance) {
+  if (error instanceof FunnelConfigNotFoundError) {
+    return reply.code(404).send({ message: error.message })
+  }
+  if (error instanceof FunnelConfigConflictError) {
+    return reply.code(409).send({ message: error.message })
+  }
+  if (error instanceof FunnelConfigValidationError) {
+    return reply.code(422).send({ message: error.message, issues: error.issues })
+  }
+
+  app.log.error(error)
+  return reply.code(500).send({ message: 'Funnel configuration is unavailable' })
+}
+
+function versionParam(value: string) {
+  const version = Number(value)
+  return Number.isInteger(version) && version > 0 ? version : null
+}
+
 export function buildApp(options: AppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true })
   const database = createDatabase(options.databasePath)
+  const configs = new FunnelConfigService(database)
   const events = new EventService(database)
-  const sessions = new SessionService(database, events, {
+  const sessions = new SessionService(database, events, configs, {
     ...(options.random ? { random: options.random } : {})
   })
-  const analytics = new AnalyticsService(database)
+  const analytics = new AnalyticsService(database, configs)
 
   app.addHook('onClose', async () => database.close())
 
@@ -57,10 +87,50 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 
   app.get('/api/funnels/active', async (_request, reply) => {
     try {
-      return await loadActiveFunnelConfig()
+      return configs.getActive()
     } catch (error) {
-      app.log.error(error)
-      return reply.code(500).send({ message: 'Active funnel config is unavailable' })
+      return sendConfigError(error, reply, app)
+    }
+  })
+
+  app.get('/api/funnels/versions', async (_request, reply) => {
+    try {
+      return configs.list()
+    } catch (error) {
+      return sendConfigError(error, reply, app)
+    }
+  })
+
+  app.post('/api/funnels/versions', async (request, reply) => {
+    const input = CreateFunnelVersionRequestSchema.safeParse(request.body)
+    if (!input.success) return reply.code(400).send({ message: 'Invalid version data' })
+
+    try {
+      return reply.code(201).send(configs.create(input.data.config))
+    } catch (error) {
+      return sendConfigError(error, reply, app)
+    }
+  })
+
+  app.post<{ Params: { version: string } }>(
+    '/api/funnels/versions/:version/publish',
+    async (request, reply) => {
+      const version = versionParam(request.params.version)
+      if (!version) return reply.code(400).send({ message: 'Invalid funnel version' })
+
+      try {
+        return configs.publish(version)
+      } catch (error) {
+        return sendConfigError(error, reply, app)
+      }
+    }
+  )
+
+  app.post('/api/funnels/rollback', async (_request, reply) => {
+    try {
+      return configs.rollback()
+    } catch (error) {
+      return sendConfigError(error, reply, app)
     }
   })
 
@@ -125,6 +195,3 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 
   return app
 }
-import { AnalyticsService } from './analytics-service.js'
-import { createDatabase } from './database.js'
-import { EventService } from './event-service.js'

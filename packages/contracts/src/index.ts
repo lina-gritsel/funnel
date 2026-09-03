@@ -324,6 +324,26 @@ export type FunnelVariantConfig = z.infer<typeof FunnelVariantConfigSchema>
 export type FunnelConfig = z.infer<typeof FunnelConfigSchema>
 export type FunnelAnswer = string | string[] | number
 
+export const FunnelVersionSummarySchema = z.object({
+  funnelId: NonEmptyStringSchema,
+  version: z.number().int().positive(),
+  status: z.enum(['draft', 'active', 'archived']),
+  createdAt: z.iso.datetime(),
+  publishedAt: z.iso.datetime().nullable()
+})
+
+export const FunnelVersionsResponseSchema = z.object({
+  activeVersion: z.number().int().positive(),
+  versions: z.array(FunnelVersionSummarySchema)
+})
+
+export const CreateFunnelVersionRequestSchema = z.object({
+  config: z.unknown()
+})
+
+export type FunnelVersionSummary = z.infer<typeof FunnelVersionSummarySchema>
+export type FunnelVersionsResponse = z.infer<typeof FunnelVersionsResponseSchema>
+
 export const FunnelAnswerSchema = z.union([z.string(), z.number(), z.array(z.string())])
 export const FunnelAnswersSchema = z.record(z.string(), FunnelAnswerSchema)
 

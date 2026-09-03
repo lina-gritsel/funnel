@@ -4,11 +4,13 @@ import type {
   FunnelStepConfig,
   FunnelStepType,
   FunnelTransition,
-  FunnelVariantId
+  FunnelVariantId,
+  FunnelVersionsResponse
 } from '@funnel/contracts'
 
-import { fetchActiveFunnel } from '../api/funnel'
+import { fetchActiveFunnel, fetchFunnelVersions } from '../api/funnel'
 import { AdminLayout } from '../components/admin/AdminLayout'
+import { FunnelVersionManager } from '../components/admin/FunnelVersionManager'
 
 const stepTypeLabel: Record<FunnelStepType, string> = {
   info: 'Информация',
@@ -28,7 +30,13 @@ function transitionLabel(transition: FunnelTransition | undefined) {
   return `${branches.join(' · ')} · иначе → ${transition.fallbackStepId}`
 }
 
-function FunnelOverview({ config }: { config: FunnelConfig }) {
+function FunnelOverview({
+  config,
+  versions
+}: {
+  config: FunnelConfig
+  versions: FunnelVersionsResponse
+}) {
   const branchCount = config.steps.filter((step) => step.next?.type === 'branch').length
 
   return (
@@ -63,6 +71,8 @@ function FunnelOverview({ config }: { config: FunnelConfig }) {
           </p>
         </div>
       </section>
+
+      <FunnelVersionManager data={versions} />
 
       <section className="grid gap-8 border-b border-line py-10 sm:py-12 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-16">
         <div>
@@ -195,21 +205,30 @@ export function AdminFunnelPage() {
     queryFn: fetchActiveFunnel,
     retry: 1
   })
+  const versionsQuery = useQuery({
+    queryKey: ['funnel-versions'],
+    queryFn: fetchFunnelVersions,
+    retry: 1
+  })
+  const isPending = funnelQuery.isPending || versionsQuery.isPending
+  const isError = funnelQuery.isError || versionsQuery.isError
 
   return (
     <AdminLayout>
-      {funnelQuery.isPending ? (
+      {isPending ? (
         <div className="py-24 text-center text-sm text-muted">Загружаем конфигурацию…</div>
       ) : null}
 
-      {funnelQuery.isError ? (
+      {isError ? (
         <div className="border-l-2 border-danger py-2 pl-4">
           <h1 className="font-semibold">Не удалось получить конфигурацию</h1>
           <p className="mt-1 text-sm text-muted">Проверьте, что backend доступен.</p>
         </div>
       ) : null}
 
-      {funnelQuery.data ? <FunnelOverview config={funnelQuery.data} /> : null}
+      {funnelQuery.data && versionsQuery.data ? (
+        <FunnelOverview config={funnelQuery.data} versions={versionsQuery.data} />
+      ) : null}
     </AdminLayout>
   )
 }

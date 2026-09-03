@@ -1,7 +1,7 @@
 import type { AnalyticsResponse, FunnelVariantId } from '@funnel/contracts'
 
 import type { AppDatabase } from './database.js'
-import { loadActiveFunnelConfig } from './funnel-config.js'
+import type { FunnelConfigService } from './funnel-config.js'
 
 type TotalsRow = {
   sessions_started: number
@@ -39,7 +39,10 @@ const totalsSelect = `
 `
 
 export class AnalyticsService {
-  constructor(private readonly database: AppDatabase) {}
+  constructor(
+    private readonly database: AppDatabase,
+    private readonly configs: FunnelConfigService
+  ) {}
 
   async get(utmCampaign?: string): Promise<AnalyticsResponse> {
     const cohort = `session_id IN (
@@ -83,7 +86,7 @@ export class AnalyticsService {
         .all() as { utm_campaign: string }[]
     ).map((row) => row.utm_campaign)
 
-    const config = await loadActiveFunnelConfig()
+    const config = this.configs.getActive()
     const stepsById = new Map(stepRows.map((row) => [row.step_id, row]))
 
     return {

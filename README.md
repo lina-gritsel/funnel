@@ -49,8 +49,18 @@ configs                  Versioned sample funnel configurations
 ```
 
 The active `configs/funnel-v1.json` contains seven screens, a conditional branch and A/B variants.
-The backend validates it before returning it to the frontend. The internal `/admin` page is a
-read-only view of the active configuration; publishing and rollback are implemented separately.
+On the first start, the backend validates it and seeds SQLite with active version 1.
+
+## Configuration versions
+
+SQLite is the runtime source of truth for funnel configurations. The internal `/admin` page shows
+the active configuration and version history, accepts the next JSON version as a draft, publishes a
+draft without redeploying and rolls back to the previous published version. Publication and rollback
+are transactional, so only one version is active at a time.
+
+Sessions store their assigned version number and always load that exact configuration. Publishing or
+rolling back changes only newly created sessions; existing sessions continue on their pinned version.
+Archived configurations remain available for session recovery and historical analytics.
 
 ## Sessions
 
