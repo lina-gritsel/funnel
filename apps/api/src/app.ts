@@ -67,7 +67,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true })
   const database = createDatabase(options.databasePath)
   const configs = new FunnelConfigService(database)
-  const events = new EventService(database)
+  const events = new EventService(database, configs)
   const sessions = new SessionService(database, events, configs, {
     ...(options.random ? { random: options.random } : {})
   })

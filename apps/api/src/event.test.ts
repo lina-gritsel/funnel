@@ -99,6 +99,24 @@ describe('event ingestion', () => {
 
     expect(result.rejected[0]?.message).toContain('Raw answers')
   })
+
+  it('rejects a custom event that is not declared by the pinned config', async () => {
+    const app = createApp()
+    const session = await createSession(app)
+    const custom = event(session.id, 'investment_horizon_selected', 'horizon')
+    const result = EventBatchResponseSchema.parse(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/events/batch',
+          payload: { events: [custom] }
+        })
+      ).json()
+    )
+
+    expect(result.accepted).toEqual([])
+    expect(result.rejected[0]?.message).toContain('not configured')
+  })
 })
 
 describe('analytics', () => {

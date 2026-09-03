@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import {
+  ClientCoreFunnelEventNameSchema,
   ClientFunnelEventSchema,
   type ClientFunnelEvent,
   type EventBatchResponse,
@@ -9,6 +10,7 @@ import {
 } from '@funnel/contracts'
 
 import type { AppDatabase } from './database.js'
+import type { FunnelConfigService } from './funnel-config.js'
 
 type EventSessionRow = {
   id: string
@@ -31,7 +33,10 @@ function containsRawAnswer(event: ClientFunnelEvent) {
 }
 
 export class EventService {
-  constructor(private readonly database: AppDatabase) {}
+  constructor(
+    private readonly database: AppDatabase,
+    private readonly configs: FunnelConfigService
+  ) {}
 
   recordSessionStarted(session: FunnelSession, clientTimestamp?: string) {
     this.insert({
@@ -88,6 +93,15 @@ export class EventService {
         return
       }
 
+      if (!this.isAllowedEvent(event, session)) {
+        response.rejected.push({
+          index,
+          eventId: event.eventId,
+          message: `Event ${event.name} is not configured for this funnel version and step`
+        })
+        return
+      }
+
       try {
         this.insert({
           eventId: event.eventId,
@@ -126,6 +140,19 @@ export class EventService {
          FROM sessions WHERE id = ?`
       )
       .get(sessionId) as EventSessionRow | undefined
+  }
+
+  private isAllowedEvent(event: ClientFunnelEvent, session: EventSessionRow) {
+    if (ClientCoreFunnelEventNameSchema.safeParse(event.name).success) return true
+
+    return this.configs
+      .getVersion(session.funnel_version)
+      .customEvents.some(
+        (customEvent) =>
+          customEvent.name === event.name &&
+          customEvent.trigger === 'step_completed' &&
+          customEvent.stepId === event.stepId
+      )
   }
 
   private insert(event: {

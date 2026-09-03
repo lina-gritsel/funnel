@@ -132,6 +132,12 @@ export const FunnelVariantConfigSchema = z.object({
   stepOverrides: z.record(z.string(), FunnelStepOverrideSchema)
 })
 
+export const FunnelCustomEventSchema = z.object({
+  name: NonEmptyStringSchema,
+  trigger: z.literal('step_completed'),
+  stepId: NonEmptyStringSchema
+})
+
 const FunnelConfigBaseSchema = z.object({
   schemaVersion: z.literal(1),
   id: NonEmptyStringSchema,
@@ -150,6 +156,7 @@ const FunnelConfigBaseSchema = z.object({
       B: FunnelVariantConfigSchema
     })
   }),
+  customEvents: z.array(FunnelCustomEventSchema).default([]),
   steps: z.array(FunnelStepConfigSchema).min(6)
 })
 
@@ -195,6 +202,32 @@ export const FunnelConfigSchema = FunnelConfigBaseSchema.superRefine((config, co
       message: 'Config must contain at least one branch'
     })
   }
+
+  const customEventNames = config.customEvents.map((event) => event.name)
+  if (new Set(customEventNames).size !== customEventNames.length) {
+    context.addIssue({
+      code: 'custom',
+      path: ['customEvents'],
+      message: 'Custom event names must be unique'
+    })
+  }
+
+  config.customEvents.forEach((event, eventIndex) => {
+    if (!uniqueStepIds.has(event.stepId)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['customEvents', eventIndex, 'stepId'],
+        message: `Custom event references unknown step ${event.stepId}`
+      })
+    }
+    if (FunnelEventNameSchema.safeParse(event.name).success) {
+      context.addIssue({
+        code: 'custom',
+        path: ['customEvents', eventIndex, 'name'],
+        message: `Custom event cannot reuse reserved name ${event.name}`
+      })
+    }
+  })
 
   const weights = config.experiment.variants.A.weight + config.experiment.variants.B.weight
   if (weights !== 100) {
@@ -321,6 +354,7 @@ export type FunnelStepConfig = z.infer<typeof FunnelStepConfigSchema>
 export type FunnelStepType = FunnelStepConfig['type']
 export type FunnelStepOverride = z.infer<typeof FunnelStepOverrideSchema>
 export type FunnelVariantConfig = z.infer<typeof FunnelVariantConfigSchema>
+export type FunnelCustomEvent = z.infer<typeof FunnelCustomEventSchema>
 export type FunnelConfig = z.infer<typeof FunnelConfigSchema>
 export type FunnelAnswer = string | string[] | number
 
@@ -398,6 +432,12 @@ export const FunnelEventNameSchema = z.enum([
   'cta_clicked'
 ])
 
+export const ClientCoreFunnelEventNameSchema = FunnelEventNameSchema.exclude(['session_started'])
+export const ClientFunnelEventNameSchema = NonEmptyStringSchema.refine(
+  (name) => name !== 'session_started',
+  { message: 'session_started is created by the server' }
+)
+
 export const FunnelEventPropertiesSchema = z.record(
   z.string(),
   z.union([z.string(), z.number(), z.boolean(), z.null()])
@@ -406,7 +446,7 @@ export const FunnelEventPropertiesSchema = z.record(
 export const ClientFunnelEventSchema = z.object({
   eventId: z.uuid(),
   sessionId: z.uuid(),
-  name: FunnelEventNameSchema.exclude(['session_started']),
+  name: ClientFunnelEventNameSchema,
   clientTimestamp: z.iso.datetime(),
   stepId: NonEmptyStringSchema,
   properties: FunnelEventPropertiesSchema.default({})
@@ -453,11 +493,17 @@ const AnalyticsStepSchema = z.object({
   conversionRate: z.number().min(0)
 })
 
+const AnalyticsEventSchema = z.object({
+  name: NonEmptyStringSchema,
+  sessions: z.number().int().min(0)
+})
+
 export const AnalyticsResponseSchema = z.object({
   totals: AnalyticsTotalsSchema,
   variants: z.array(AnalyticsVariantSchema),
   versions: z.array(AnalyticsVersionSchema),
   steps: z.array(AnalyticsStepSchema),
+  events: z.array(AnalyticsEventSchema),
   campaigns: z.array(z.string()),
   activeCampaign: z.string().nullable()
 })

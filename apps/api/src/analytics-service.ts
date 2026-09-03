@@ -17,6 +17,7 @@ type StepRow = {
   completed: number
   cta_clicked: number
 }
+type EventRow = { name: string; sessions: number }
 
 function percentage(value: number, total: number) {
   return total === 0 ? 0 : Number(((value / total) * 100).toFixed(1))
@@ -85,8 +86,20 @@ export class AnalyticsService {
         )
         .all() as { utm_campaign: string }[]
     ).map((row) => row.utm_campaign)
+    const eventRows = this.database
+      .prepare(
+        `SELECT event_name AS name, COUNT(DISTINCT session_id) AS sessions
+         FROM events ${where}
+         GROUP BY event_name
+         ORDER BY sessions DESC, event_name`
+      )
+      .all(params) as EventRow[]
 
-    const config = this.configs.getActive()
+    const configs = this.configs.getAll()
+    const steps = configs.flatMap((config) => config.steps)
+    const uniqueSteps = steps.filter(
+      (step, index) => steps.findIndex((candidate) => candidate.id === step.id) === index
+    )
     const stepsById = new Map(stepRows.map((row) => [row.step_id, row]))
 
     return {
@@ -101,7 +114,7 @@ export class AnalyticsService {
         return { variant, ...metrics(row) }
       }),
       versions: versionRows.map((row) => ({ version: row.version, ...metrics(row) })),
-      steps: config.steps.map((step) => {
+      steps: uniqueSteps.map((step) => {
         const row = stepsById.get(step.id) ?? {
           step_id: step.id,
           viewed: 0,
@@ -118,6 +131,7 @@ export class AnalyticsService {
           conversionRate: percentage(completed, row.viewed)
         }
       }),
+      events: eventRows,
       campaigns,
       activeCampaign: utmCampaign ?? null
     }

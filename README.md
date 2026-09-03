@@ -48,8 +48,9 @@ packages/funnel-engine   Framework-independent funnel logic
 configs                  Versioned sample funnel configurations
 ```
 
-The active `configs/funnel-v1.json` contains seven screens, a conditional branch and A/B variants.
-On the first start, the backend validates it and seeds SQLite with active version 1.
+The bundled `configs/funnel-v1.json` contains seven screens, a conditional branch and A/B variants.
+On the first start, the backend validates it and seeds SQLite with active version 1. The second local
+config, `configs/funnel-v2.json`, is supplied as a draft for the second-iteration workflow.
 
 ## Configuration versions
 
@@ -61,6 +62,18 @@ are transactional, so only one version is active at a time.
 Sessions store their assigned version number and always load that exact configuration. Publishing or
 rolling back changes only newly created sessions; existing sessions continue on their pinned version.
 Archived configurations remain available for session recovery and historical analytics.
+
+### Second iteration
+
+Version 2 adds a planning-horizon question and a short-horizon branch with a liquidity explanation.
+Variant B removes the education screen and goes directly from experience to the result. The config
+also declares `investment_horizon_selected`, emitted after the new horizon step is completed. Custom
+events are accepted only when the pinned funnel version declares the exact event name and step.
+
+Use `/admin` to upload `configs/funnel-v2.json`, publish the draft and later roll back to version 1.
+Sessions created before publication keep version 1, sessions created while version 2 is active keep
+version 2 even after rollback, and new sessions after rollback use version 1 again. Historical version
+totals, the version 2-only steps and the custom event remain visible in analytics after rollback.
 
 ## Sessions
 
@@ -98,7 +111,8 @@ With the API running, populate the dashboard with a deterministic set of 100 ses
 npm run generate:traffic
 ```
 
-The generator uses the public HTTP API rather than writing to SQLite directly. It creates five UTM
+The generator uses the public HTTP API rather than writing to SQLite directly and adapts its routes
+to active version 1 or 2. It creates five UTM
 campaigns with 20 sessions each, splits traffic evenly between variants A and B, covers both funnel
 branches and dropoffs at different steps, and includes repeated views, back navigation, batches,
 duplicate delivery and out-of-order events. It appends data without clearing existing sessions.
@@ -106,7 +120,9 @@ duplicate delivery and out-of-order events. It appends data without clearing exi
 The expected increment is 100 started sessions, 50 result viewers and 30 CTA clickers. Every
 synthetic campaign adds 20 sessions, 10 result viewers and 6 CTA clickers. After delivery, the command
 checks overall, per-variant, per-campaign and per-step analytics and exits with an error if the numbers
-do not match. Use `FUNNEL_API_URL` to target another API origin:
+do not match. On version 2 it also covers both horizon routes, verifies that variant B skips education
+and produces `investment_horizon_selected` for 60 unique sessions. Use `FUNNEL_API_URL` to target
+another API origin:
 
 ```bash
 FUNNEL_API_URL=http://localhost:3001 npm run generate:traffic
@@ -118,3 +134,10 @@ The first experiment checks whether asking for the planned amount before the fin
 the value of the funnel clearer and helps more people reach the result. Variant A starts with the
 goal; variant B starts with the amount and uses different result copy. The primary metric is
 `result_completion_rate` — the share of started unique sessions that reach the result screen.
+
+## Iteration timeline
+
+- Iteration 1: configurable seven-screen funnel, stable A/B assignment, persisted sessions, batched
+  events, unique-session analytics and deterministic synthetic traffic.
+- Iteration 2: a second JSON config with a new conditional route, a B-only screen removal, a
+  config-declared event, publication with pinned legacy sessions and rollback without analytics loss.

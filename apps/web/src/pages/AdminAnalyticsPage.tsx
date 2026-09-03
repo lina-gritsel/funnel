@@ -114,6 +114,27 @@ function AnalyticsContent({ data }: { data: AnalyticsResponse }) {
           <p className="border-y border-line py-6 text-sm text-muted">Событий пока нет.</p>
         )}
       </section>
+
+      <section className="grid gap-8 border-t border-line py-10 sm:py-12 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-16">
+        <div>
+          <p className="text-xs font-bold tracking-[0.12em] text-accent uppercase">События</p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">Покрытие сессий</h2>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            Каждое событие считается один раз на уникальную сессию.
+          </p>
+        </div>
+        <div className="divide-y divide-line border-y border-line">
+          {data.events.map((event) => (
+            <div
+              key={event.name}
+              className="grid grid-cols-[minmax(0,1fr)_80px] items-center gap-4 py-4"
+            >
+              <code className="text-sm text-accent">{event.name}</code>
+              <Metric label="Сессии" value={event.sessions} compact />
+            </div>
+          ))}
+        </div>
+      </section>
     </>
   )
 }

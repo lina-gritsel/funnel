@@ -1,13 +1,18 @@
+import { randomUUID } from 'node:crypto'
+
 import {
   AnalyticsResponseSchema,
+  EventBatchResponseSchema,
   FunnelConfigSchema,
   FunnelVersionsResponseSchema,
   SessionBootstrapResponseSchema,
+  SessionStateResponseSchema,
   type FunnelConfig
 } from '@funnel/contracts'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { buildApp } from './app.js'
+import { loadFunnelConfig } from './funnel-config.js'
 
 const apps: ReturnType<typeof buildApp>[] = []
 
@@ -23,23 +28,25 @@ async function activeConfig(app: ReturnType<typeof buildApp>) {
   )
 }
 
-function nextConfig(config: FunnelConfig): FunnelConfig {
+function skippedConfig(config: FunnelConfig): FunnelConfig {
   return {
-    ...structuredClone(config),
-    name: 'Подбор финансового сценария — вторая версия',
-    version: config.version + 1,
+    ...structuredClone(loadFunnelConfig(2)),
+    version: config.version + 2,
     status: 'draft',
     createdAt: new Date().toISOString(),
-    publishedAt: undefined,
-    steps: config.steps.map((step) =>
-      step.id === 'welcome' ? { ...step, title: 'Обновлённое приветствие' } : step
-    )
+    publishedAt: undefined
   }
 }
 
-async function createSession(app: ReturnType<typeof buildApp>) {
+async function createSession(app: ReturnType<typeof buildApp>, variant?: 'A' | 'B') {
   return SessionBootstrapResponseSchema.parse(
-    (await app.inject({ method: 'POST', url: '/api/sessions', payload: {} })).json()
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/sessions',
+        payload: variant ? { variant } : {}
+      })
+    ).json()
   )
 }
 
@@ -51,7 +58,7 @@ describe('funnel versioning', () => {
   it('publishes a draft, pins existing sessions and rolls back new traffic', async () => {
     const app = createApp()
     const v1Session = await createSession(app)
-    const draft = nextConfig(await activeConfig(app))
+    const draft = loadFunnelConfig(2)
 
     const createdResponse = await app.inject({
       method: 'POST',
@@ -74,9 +81,64 @@ describe('funnel versioning', () => {
       status: 'active'
     })
 
-    const v2Session = await createSession(app)
+    const continuedV1 = SessionStateResponseSchema.parse(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/sessions/${v1Session.session.id}/answers`,
+          payload: { stepId: 'welcome' }
+        })
+      ).json()
+    )
+    expect(continuedV1.session.currentStepId).toBe('goal')
+
+    const v2Session = await createSession(app, 'B')
     expect(v2Session.session.version).toBe(2)
-    expect(v2Session.config.steps[0]?.title).toBe('Обновлённое приветствие')
+    expect(v2Session.config.customEvents[0]?.name).toBe('investment_horizon_selected')
+
+    const v2Answers = [
+      { stepId: 'welcome' },
+      { stepId: 'amount', answer: 250000 },
+      { stepId: 'goal', answer: 'invest' },
+      { stepId: 'priorities', answer: ['support'] },
+      { stepId: 'horizon', answer: 'short' },
+      { stepId: 'liquidity' },
+      { stepId: 'experience', answer: 'beginner' }
+    ]
+    let currentStepId = 'welcome'
+    for (const payload of v2Answers) {
+      expect(currentStepId).toBe(payload.stepId)
+      const response = SessionStateResponseSchema.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: `/api/sessions/${v2Session.session.id}/answers`,
+            payload
+          })
+        ).json()
+      )
+      currentStepId = response.session.currentStepId
+    }
+    expect(currentStepId).toBe('result')
+
+    const customEvent = {
+      eventId: randomUUID(),
+      sessionId: v2Session.session.id,
+      name: 'investment_horizon_selected',
+      clientTimestamp: new Date().toISOString(),
+      stepId: 'horizon',
+      properties: { next_step_id: 'liquidity' }
+    }
+    const eventResult = EventBatchResponseSchema.parse(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/events/batch',
+          payload: { events: [customEvent] }
+        })
+      ).json()
+    )
+    expect(eventResult.accepted).toEqual([customEvent.eventId])
 
     const restoredV1 = SessionBootstrapResponseSchema.parse(
       (
@@ -124,12 +186,20 @@ describe('funnel versioning', () => {
       { version: 1, sessionsStarted: 2 },
       { version: 2, sessionsStarted: 1 }
     ])
+    expect(analytics.steps.some((step) => step.stepId === 'horizon')).toBe(true)
+    expect(analytics.steps.find((step) => step.stepId === 'welcome')?.title).toBe(
+      v1Session.config.steps.find((step) => step.id === 'welcome')?.title
+    )
+    expect(analytics.events).toContainEqual({
+      name: 'investment_horizon_selected',
+      sessions: 1
+    })
   })
 
   it('rejects an invalid or skipped version without changing the active config', async () => {
     const app = createApp()
     const current = await activeConfig(app)
-    const skipped = { ...nextConfig(current), version: 3 }
+    const skipped = skippedConfig(current)
 
     const skippedResponse = await app.inject({
       method: 'POST',

@@ -9,6 +9,7 @@ import {
   type AnalyticsResponse,
   type ClientFunnelEvent,
   type FunnelAnswer,
+  type FunnelCustomEvent,
   type FunnelEventProperties
 } from '@funnel/contracts'
 
@@ -99,6 +100,8 @@ function answerFor(stepId: TrafficStepId, scenario: TrafficScenario): FunnelAnsw
       return scenario.index % 2 === 0 ? ['speed'] : ['support', 'flexibility']
     case 'experience':
       return scenario.branch
+    case 'horizon':
+      return scenario.horizon
     default:
       return undefined
   }
@@ -108,6 +111,7 @@ function answerProperties(stepId: TrafficStepId, answer: FunnelAnswer | undefine
   switch (stepId) {
     case 'goal':
     case 'experience':
+    case 'horizon':
       return { answer_type: 'single-select' }
     case 'amount':
       return { answer_type: 'number' }
@@ -126,6 +130,7 @@ async function submitStep({
   stepId,
   expectedNextStepId,
   scenario,
+  customEvents,
   timeline,
   events
 }: {
@@ -133,6 +138,7 @@ async function submitStep({
   stepId: TrafficStepId
   expectedNextStepId: TrafficStepId
   scenario: TrafficScenario
+  customEvents: FunnelCustomEvent[]
   timeline: Timeline
   events: ClientFunnelEvent[]
 }) {
@@ -165,6 +171,15 @@ async function submitStep({
       view_reason: 'forward'
     })
   )
+  customEvents
+    .filter((event) => event.trigger === 'step_completed' && event.stepId === stepId)
+    .forEach((event) =>
+      events.push(
+        createEvent(sessionId, event.name, stepId, timestamp, {
+          next_step_id: expectedNextStepId
+        })
+      )
+    )
   if (expectedNextStepId === 'result') {
     events.push(createEvent(sessionId, 'result_viewed', 'result', timeline.next()))
   }
@@ -256,6 +271,7 @@ async function runScenario(scenario: TrafficScenario, expectedVersion: number) {
         stepId: previousStepId,
         expectedNextStepId: 'priorities',
         scenario,
+        customEvents: bootstrap.config.customEvents,
         timeline,
         events
       })
@@ -269,6 +285,7 @@ async function runScenario(scenario: TrafficScenario, expectedVersion: number) {
       stepId,
       expectedNextStepId: nextStepId,
       scenario,
+      customEvents: bootstrap.config.customEvents,
       timeline,
       events
     })
@@ -303,14 +320,16 @@ function validateAnalyticsDelta({
   label,
   before,
   after,
-  scenarios
+  scenarios,
+  customEvents
 }: {
   label: string
   before: AnalyticsResponse
   after: AnalyticsResponse
   scenarios: TrafficScenario[]
+  customEvents: FunnelCustomEvent[]
 }) {
-  const expected = summarizeTrafficPlan(scenarios)
+  const expected = summarizeTrafficPlan(scenarios, customEvents)
   expectEqual(label, metricDelta(before.totals, after.totals), expected.totals)
 
   for (const variant of ['A', 'B'] as const) {
@@ -337,6 +356,12 @@ function validateAnalyticsDelta({
       expectedStep
     )
   }
+
+  for (const [eventName, expectedSessions] of Object.entries(expected.events)) {
+    const beforeEvent = before.events.find((event) => event.name === eventName)?.sessions ?? 0
+    const afterEvent = after.events.find((event) => event.name === eventName)?.sessions ?? 0
+    expectEqual(`${label}, event ${eventName}`, afterEvent - beforeEvent, expectedSessions)
+  }
 }
 
 async function main() {
@@ -346,6 +371,7 @@ async function main() {
     'goal',
     'amount',
     'priorities',
+    ...(config.version >= 2 ? (['horizon', 'liquidity'] as const) : []),
     'experience',
     'education',
     'result'
@@ -356,8 +382,8 @@ async function main() {
     throw new Error(`Active funnel is missing required steps: ${missingSteps.join(', ')}`)
   }
 
-  const scenarios = createTrafficPlan()
-  const expected = summarizeTrafficPlan(scenarios)
+  const scenarios = createTrafficPlan(config.version)
+  const expected = summarizeTrafficPlan(scenarios, config.customEvents)
   const beforeAll = await fetchAnalytics()
   const beforeCampaigns = new Map(
     await Promise.all(
@@ -407,7 +433,13 @@ async function main() {
   duplicates += retry.duplicates.length
 
   const afterAll = await fetchAnalytics()
-  validateAnalyticsDelta({ label: 'All traffic', before: beforeAll, after: afterAll, scenarios })
+  validateAnalyticsDelta({
+    label: 'All traffic',
+    before: beforeAll,
+    after: afterAll,
+    scenarios,
+    customEvents: config.customEvents
+  })
 
   for (const { campaign } of trafficCampaigns) {
     const before = beforeCampaigns.get(campaign)
@@ -419,7 +451,8 @@ async function main() {
       label: campaign,
       before,
       after: await fetchAnalytics(campaign),
-      scenarios: campaignScenarios
+      scenarios: campaignScenarios,
+      customEvents: config.customEvents
     })
   }
 
@@ -430,6 +463,9 @@ async function main() {
   console.log(`Results: ${expected.totals.resultReached} (${resultRate}%)`)
   console.log(`CTA clicks: ${expected.totals.ctaClicked} (${ctaCtr}% CTR)`)
   console.log(`Events accepted: ${accepted}; duplicate deliveries: ${duplicates}`)
+  Object.entries(expected.events).forEach(([name, sessions]) =>
+    console.log(`Custom event ${name}: ${sessions} unique sessions`)
+  )
   console.log(`Batches: ${batches.length}; out-of-order sessions: 10; back sessions: 10`)
 }
 

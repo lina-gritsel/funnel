@@ -55,4 +55,32 @@ describe('traffic plan', () => {
     expect(plan.some((scenario) => getScenarioRoute(scenario).includes('education'))).toBe(true)
     expect(plan.some((scenario) => !getScenarioRoute(scenario).includes('education'))).toBe(true)
   })
+
+  it('covers the second-iteration branch and removes education from variant B', () => {
+    const plan = createTrafficPlan(2)
+    const routes = plan.map(getScenarioRoute)
+    const summary = summarizeTrafficPlan(plan, [
+      {
+        name: 'investment_horizon_selected',
+        trigger: 'step_completed',
+        stepId: 'horizon'
+      }
+    ])
+
+    expect(summary.totals).toEqual({
+      sessionsStarted: 100,
+      resultReached: 50,
+      ctaClicked: 30
+    })
+    expect(routes.every((route) => route.includes('horizon'))).toBe(true)
+    expect(routes.some((route) => route.includes('liquidity'))).toBe(true)
+    expect(
+      plan
+        .filter((scenario) => scenario.variant === 'B')
+        .every((scenario) => !getScenarioRoute(scenario).includes('education'))
+    ).toBe(true)
+    expect(plan.some((scenario) => scenario.dropAt === 'horizon')).toBe(true)
+    expect(plan.some((scenario) => scenario.dropAt === 'liquidity')).toBe(true)
+    expect(summary.events.investment_horizon_selected).toBeGreaterThan(0)
+  })
 })

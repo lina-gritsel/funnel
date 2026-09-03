@@ -3,6 +3,7 @@ import type {
   FunnelAnswers,
   FunnelCondition,
   FunnelConfig,
+  FunnelCustomEvent,
   FunnelStepConfig,
   FunnelStepOverride,
   FunnelTransition,
@@ -16,6 +17,7 @@ export type ResolvedFunnel = {
   version: number
   variant: FunnelVariantId
   entryStepId: string
+  customEvents: FunnelCustomEvent[]
   steps: FunnelStepConfig[]
 }
 
@@ -71,6 +73,7 @@ export function resolveVariant(config: FunnelConfig, variantId: FunnelVariantId)
     version: config.version,
     variant: variantId,
     entryStepId: config.entryStepId,
+    customEvents: config.customEvents,
     steps
   }
 }

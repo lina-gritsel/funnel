@@ -76,6 +76,19 @@ function FunnelRuntime() {
         stepId: input.request.stepId,
         properties: { next_step_id: updatedSession.currentStepId }
       })
+      funnel.customEvents
+        .filter(
+          (event) => event.trigger === 'step_completed' && event.stepId === input.request.stepId
+        )
+        .forEach((event) =>
+          trackEvent({
+            sessionId: session.id,
+            name: event.name,
+            clientTimestamp: input.clientTimestamp,
+            stepId: input.request.stepId,
+            properties: { next_step_id: updatedSession.currentStepId }
+          })
+        )
       applySession(updatedSession)
       trackEvent({
         sessionId: session.id,

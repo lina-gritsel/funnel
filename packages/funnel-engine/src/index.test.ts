@@ -41,6 +41,7 @@ const config: FunnelConfig = {
       }
     }
   },
+  customEvents: [],
   steps: [
     {
       id: 'welcome',

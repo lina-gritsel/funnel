@@ -1,0 +1,254 @@
+{
+  "schemaVersion": 1,
+  "id": "financial-path",
+  "name": "Подбор финансового сценария — горизонт планирования",
+  "version": 2,
+  "status": "draft",
+  "createdAt": "2026-09-03T00:00:00.000Z",
+  "entryStepId": "welcome",
+  "experiment": {
+    "id": "guided-path-v2",
+    "hypothesis": "Если в варианте B сократить образовательный экран и сразу показать результат, больше пользователей завершат воронку без снижения CTR.",
+    "primaryMetric": "result_completion_rate",
+    "variants": {
+      "A": {
+        "name": "Полный маршрут",
+        "description": "Сохраняет образовательный экран для начинающих пользователей.",
+        "weight": 50,
+        "stepOverrides": {}
+      },
+      "B": {
+        "name": "Сокращённый маршрут",
+        "description": "Начинается с суммы и исключает образовательный экран перед результатом.",
+        "weight": 50,
+        "stepOverrides": {
+          "welcome": {
+            "title": "Соберём ваш финансовый маршрут",
+            "description": "Начнём с суммы, затем уточним цель и горизонт планирования.",
+            "next": {
+              "type": "direct",
+              "stepId": "amount"
+            }
+          },
+          "amount": {
+            "next": {
+              "type": "direct",
+              "stepId": "goal"
+            }
+          },
+          "goal": {
+            "next": {
+              "type": "direct",
+              "stepId": "priorities"
+            }
+          },
+          "experience": {
+            "next": {
+              "type": "direct",
+              "stepId": "result"
+            }
+          },
+          "education": {
+            "hidden": true
+          },
+          "result": {
+            "title": "Ваш финансовый маршрут готов",
+            "description": "Мы учли сумму, цель, горизонт и ваши предпочтения.",
+            "ctaLabel": "Открыть персональный маршрут"
+          }
+        }
+      }
+    }
+  },
+  "customEvents": [
+    {
+      "name": "investment_horizon_selected",
+      "trigger": "step_completed",
+      "stepId": "horizon"
+    }
+  ],
+  "steps": [
+    {
+      "id": "welcome",
+      "type": "info",
+      "title": "Уточним ваш финансовый горизонт",
+      "description": "Ответьте на несколько вопросов, чтобы получить более точный маршрут.",
+      "next": {
+        "type": "direct",
+        "stepId": "goal"
+      }
+    },
+    {
+      "id": "goal",
+      "type": "single-select",
+      "title": "Какая у вас основная цель?",
+      "description": "Выберите один наиболее подходящий вариант.",
+      "options": [
+        {
+          "value": "invest",
+          "label": "Начать инвестировать",
+          "description": "Постепенно увеличивать капитал"
+        },
+        {
+          "value": "save",
+          "label": "Создать накопления",
+          "description": "Сформировать финансовую подушку"
+        },
+        {
+          "value": "finance",
+          "label": "Получить финансирование",
+          "description": "Для крупной покупки или развития проекта"
+        }
+      ],
+      "validation": {
+        "required": true
+      },
+      "next": {
+        "type": "direct",
+        "stepId": "amount"
+      }
+    },
+    {
+      "id": "amount",
+      "type": "number",
+      "title": "С какой суммой вы планируете работать?",
+      "description": "Укажите ориентировочную сумму.",
+      "label": "Сумма",
+      "min": 10000,
+      "max": 10000000,
+      "suffix": "₽",
+      "validation": {
+        "required": true
+      },
+      "next": {
+        "type": "direct",
+        "stepId": "priorities"
+      }
+    },
+    {
+      "id": "priorities",
+      "type": "multi-select",
+      "title": "Что для вас особенно важно?",
+      "description": "Выберите до двух вариантов.",
+      "options": [
+        {
+          "value": "speed",
+          "label": "Быстрый старт"
+        },
+        {
+          "value": "support",
+          "label": "Помощь специалиста"
+        },
+        {
+          "value": "flexibility",
+          "label": "Гибкие условия"
+        }
+      ],
+      "validation": {
+        "required": true,
+        "minSelections": 1,
+        "maxSelections": 2
+      },
+      "next": {
+        "type": "direct",
+        "stepId": "horizon"
+      }
+    },
+    {
+      "id": "horizon",
+      "type": "single-select",
+      "title": "Когда вам могут понадобиться эти деньги?",
+      "description": "Горизонт влияет на доступность средств и подходящий уровень риска.",
+      "options": [
+        {
+          "value": "short",
+          "label": "В течение двух лет"
+        },
+        {
+          "value": "long",
+          "label": "Через три года или позже"
+        }
+      ],
+      "validation": {
+        "required": true
+      },
+      "next": {
+        "type": "branch",
+        "rules": [
+          {
+            "when": {
+              "stepId": "horizon",
+              "operator": "equals",
+              "value": "short"
+            },
+            "stepId": "liquidity"
+          }
+        ],
+        "fallbackStepId": "experience"
+      }
+    },
+    {
+      "id": "liquidity",
+      "type": "info",
+      "title": "Сохраним доступ к деньгам",
+      "description": "Для короткого горизонта приоритетом станет ликвидный сценарий с контролируемым риском.",
+      "next": {
+        "type": "direct",
+        "stepId": "experience"
+      }
+    },
+    {
+      "id": "experience",
+      "type": "single-select",
+      "title": "Какой у вас опыт инвестирования?",
+      "description": "Ответ определит следующий доступный шаг.",
+      "options": [
+        {
+          "value": "beginner",
+          "label": "Только начинаю"
+        },
+        {
+          "value": "experienced",
+          "label": "Уже есть опыт"
+        }
+      ],
+      "validation": {
+        "required": true
+      },
+      "next": {
+        "type": "branch",
+        "rules": [
+          {
+            "when": {
+              "stepId": "experience",
+              "operator": "equals",
+              "value": "beginner"
+            },
+            "stepId": "education"
+          }
+        ],
+        "fallbackStepId": "result"
+      }
+    },
+    {
+      "id": "education",
+      "type": "info",
+      "title": "Начнём с понятной основы",
+      "description": "Для первого шага подойдёт сценарий с небольшим порогом входа и подсказками специалиста.",
+      "next": {
+        "type": "direct",
+        "stepId": "result"
+      }
+    },
+    {
+      "id": "result",
+      "type": "result",
+      "title": "Рекомендация с учётом горизонта готова",
+      "description": "Мы подготовили подходящий сценарий на основе ваших целей, срока и предпочтений.",
+      "cta": {
+        "label": "Посмотреть предложение",
+        "href": "https://example.com/offer"
+      }
+    }
+  ]
+}

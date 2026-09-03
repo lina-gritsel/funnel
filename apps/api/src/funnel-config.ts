@@ -99,6 +99,19 @@ export class FunnelConfigService {
     return mapConfig(row)
   }
 
+  getAll(): FunnelConfig[] {
+    const active = this.getActive()
+    const rows = this.database
+      .prepare(
+        `SELECT * FROM funnel_versions
+         WHERE funnel_id = ?
+         ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, version DESC`
+      )
+      .all(active.id) as FunnelVersionRow[]
+
+    return rows.map(mapConfig)
+  }
+
   list(): FunnelVersionsResponse {
     const active = this.getActive()
     const rows = this.database

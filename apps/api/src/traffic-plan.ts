@@ -1,4 +1,4 @@
-import type { FunnelVariantId } from '@funnel/contracts'
+import type { FunnelCustomEvent, FunnelVariantId } from '@funnel/contracts'
 
 export const trafficCampaigns = [
   { campaign: 'synthetic-search', source: 'google', medium: 'cpc' },
@@ -9,13 +9,23 @@ export const trafficCampaigns = [
 ] as const
 
 export type TrafficStepId =
-  'welcome' | 'goal' | 'amount' | 'priorities' | 'experience' | 'education' | 'result'
+  | 'welcome'
+  | 'goal'
+  | 'amount'
+  | 'priorities'
+  | 'horizon'
+  | 'liquidity'
+  | 'experience'
+  | 'education'
+  | 'result'
 
 export type TrafficScenario = {
   index: number
+  version: number
   campaign: (typeof trafficCampaigns)[number]
   variant: FunnelVariantId
   branch: 'beginner' | 'experienced'
+  horizon: 'short' | 'long'
   dropAt: TrafficStepId | null
   clickCta: boolean
   useBack: boolean
@@ -38,25 +48,14 @@ export type TrafficSummary = {
   totals: TrafficMetricCounts
   variants: Record<FunnelVariantId, TrafficMetricCounts>
   campaigns: Record<string, TrafficMetricCounts>
-  steps: Record<TrafficStepId, TrafficStepCounts>
+  steps: Partial<Record<TrafficStepId, TrafficStepCounts>>
+  events: Record<string, number>
 }
 
 const variants: FunnelVariantId[] = ['A', 'B']
 
 function emptyMetrics(): TrafficMetricCounts {
   return { sessionsStarted: 0, resultReached: 0, ctaClicked: 0 }
-}
-
-function emptyStepCounts(): Record<TrafficStepId, TrafficStepCounts> {
-  return {
-    welcome: { viewed: 0, completed: 0 },
-    goal: { viewed: 0, completed: 0 },
-    amount: { viewed: 0, completed: 0 },
-    priorities: { viewed: 0, completed: 0 },
-    experience: { viewed: 0, completed: 0 },
-    education: { viewed: 0, completed: 0 },
-    result: { viewed: 0, completed: 0 }
-  }
 }
 
 export function getScenarioRoute(scenario: TrafficScenario): TrafficStepId[] {
@@ -67,13 +66,18 @@ export function getScenarioRoute(scenario: TrafficScenario): TrafficStepId[] {
     'welcome',
     ...questions,
     'priorities',
+    ...(scenario.version >= 2
+      ? (['horizon', ...(scenario.horizon === 'short' ? ['liquidity'] : [])] as TrafficStepId[])
+      : []),
     'experience',
-    ...(scenario.branch === 'beginner' ? (['education'] as const) : []),
+    ...(scenario.branch === 'beginner' && (scenario.version === 1 || scenario.variant === 'A')
+      ? (['education'] as const)
+      : []),
     'result'
   ]
 }
 
-export function createTrafficPlan(): TrafficScenario[] {
+export function createTrafficPlan(version = 1): TrafficScenario[] {
   const scenarios: TrafficScenario[] = []
 
   trafficCampaigns.forEach((campaign, campaignIndex) => {
@@ -89,24 +93,57 @@ export function createTrafficPlan(): TrafficScenario[] {
             : (localIndex + campaignIndex + variantIndex) % 2 === 0
               ? 'beginner'
               : 'experienced'
+        const horizon = (localIndex + campaignIndex + variantIndex) % 2 === 0 ? 'short' : 'long'
         let dropAt: TrafficStepId | null = null
 
         if (!isComplete) {
-          const dropTargets: TrafficStepId[] = [
-            'welcome',
-            firstQuestion,
-            'priorities',
-            'experience',
-            campaignIndex % 2 === 0 ? secondQuestion : 'education'
-          ]
-          dropAt = dropTargets[localIndex - 5] ?? null
+          if (version === 1) {
+            const dropTargets: TrafficStepId[] = [
+              'welcome',
+              firstQuestion,
+              'priorities',
+              'experience',
+              campaignIndex % 2 === 0 ? secondQuestion : 'education'
+            ]
+            dropAt = dropTargets[localIndex - 5] ?? null
+          } else {
+            const draftScenario: TrafficScenario = {
+              index: scenarios.length,
+              version,
+              campaign,
+              variant,
+              branch,
+              horizon,
+              dropAt: null,
+              clickCta: false,
+              useBack: false,
+              repeatView: false,
+              deliverOutOfOrder: false
+            }
+            const route = getScenarioRoute(draftScenario)
+            const lateDrop = route.includes('liquidity')
+              ? 'liquidity'
+              : route.includes('education')
+                ? 'education'
+                : 'experience'
+            const dropTargets: TrafficStepId[] = [
+              'welcome',
+              firstQuestion,
+              'priorities',
+              'horizon',
+              lateDrop
+            ]
+            dropAt = dropTargets[localIndex - 5] ?? null
+          }
         }
 
         scenarios.push({
           index: scenarios.length,
+          version,
           campaign,
           variant,
           branch,
+          horizon,
           dropAt,
           clickCta: isComplete && localIndex < 3,
           useBack: isComplete && localIndex === 0,
@@ -126,14 +163,18 @@ function incrementMetrics(metrics: TrafficMetricCounts, scenario: TrafficScenari
   if (scenario.clickCta) metrics.ctaClicked += 1
 }
 
-export function summarizeTrafficPlan(scenarios: TrafficScenario[]): TrafficSummary {
+export function summarizeTrafficPlan(
+  scenarios: TrafficScenario[],
+  customEvents: FunnelCustomEvent[] = []
+): TrafficSummary {
   const summary: TrafficSummary = {
     totals: emptyMetrics(),
     variants: { A: emptyMetrics(), B: emptyMetrics() },
     campaigns: Object.fromEntries(
       trafficCampaigns.map(({ campaign }) => [campaign, emptyMetrics()])
     ),
-    steps: emptyStepCounts()
+    steps: {},
+    events: Object.fromEntries(customEvents.map((event) => [event.name, 0]))
   }
 
   scenarios.forEach((scenario) => {
@@ -143,15 +184,21 @@ export function summarizeTrafficPlan(scenarios: TrafficScenario[]): TrafficSumma
     if (campaignMetrics) incrementMetrics(campaignMetrics, scenario)
 
     for (const stepId of getScenarioRoute(scenario)) {
-      summary.steps[stepId].viewed += 1
+      const step = (summary.steps[stepId] ??= { viewed: 0, completed: 0 })
+      step.viewed += 1
       if (stepId === scenario.dropAt) break
 
       if (stepId === 'result') {
-        if (scenario.clickCta) summary.steps.result.completed += 1
+        if (scenario.clickCta) step.completed += 1
         break
       }
 
-      summary.steps[stepId].completed += 1
+      step.completed += 1
+      customEvents
+        .filter((event) => event.trigger === 'step_completed' && event.stepId === stepId)
+        .forEach((event) => {
+          summary.events[event.name] = (summary.events[event.name] ?? 0) + 1
+        })
     }
   })
 
