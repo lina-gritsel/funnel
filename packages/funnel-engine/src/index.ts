@@ -173,7 +173,7 @@ export function validateStepAnswer(step: FunnelStepConfig, value: unknown): Answ
     const allowedValues = new Set(step.options.map((option) => option.value))
     schema = optionalSchema(
       z
-        .string()
+        .string({ error: 'Выберите один вариант' })
         .min(1, 'Выберите один вариант')
         .refine((answer) => allowedValues.has(answer), 'Выберите доступный вариант'),
       step.validation.required
@@ -181,7 +181,9 @@ export function validateStepAnswer(step: FunnelStepConfig, value: unknown): Answ
   } else if (step.type === 'multi-select') {
     const allowedValues = new Set(step.options.map((option) => option.value))
     const minimum = step.validation.minSelections ?? (step.validation.required ? 1 : 0)
-    let multiSchema = z.array(z.string()).min(minimum, `Выберите минимум ${minimum}`)
+    const minimumMessage =
+      minimum === 1 ? 'Выберите хотя бы один вариант' : `Выберите минимум ${minimum}`
+    let multiSchema = z.array(z.string(), { error: minimumMessage }).min(minimum, minimumMessage)
 
     if (step.validation.maxSelections !== undefined) {
       multiSchema = multiSchema.max(
@@ -190,9 +192,12 @@ export function validateStepAnswer(step: FunnelStepConfig, value: unknown): Answ
       )
     }
 
-    schema = multiSchema.refine(
-      (answers) => answers.every((answer) => allowedValues.has(answer)),
-      'Один из выбранных вариантов недоступен'
+    schema = optionalSchema(
+      multiSchema.refine(
+        (answers) => answers.every((answer) => allowedValues.has(answer)),
+        'Один из выбранных вариантов недоступен'
+      ),
+      step.validation.required
     )
   } else {
     let numberSchema = z.number({ error: 'Введите число' })

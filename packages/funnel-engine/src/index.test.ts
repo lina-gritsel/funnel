@@ -1,4 +1,4 @@
-import type { FunnelConfig } from '@funnel/contracts'
+import type { FunnelConfig, FunnelStepConfig } from '@funnel/contracts'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -135,9 +135,32 @@ describe('funnel engine', () => {
 
     if (!goal || !amount) throw new Error('Test steps are missing')
 
-    expect(validateStepAnswer(goal, '')).toMatchObject({ success: false })
+    expect(validateStepAnswer(goal, undefined)).toEqual({
+      success: false,
+      error: 'Выберите один вариант'
+    })
+    expect(validateStepAnswer(goal, '')).toEqual({
+      success: false,
+      error: 'Выберите один вариант'
+    })
     expect(validateStepAnswer(goal, 'save')).toEqual({ success: true, data: 'save' })
     expect(validateStepAnswer(amount, '5')).toMatchObject({ success: false })
     expect(validateStepAnswer(amount, '100')).toEqual({ success: true, data: 100 })
+  })
+
+  it('returns a user-facing message for a missing multi-select answer', () => {
+    const step: FunnelStepConfig = {
+      id: 'priorities',
+      type: 'multi-select',
+      title: 'Priorities',
+      options: [{ value: 'speed', label: 'Speed' }],
+      validation: { required: true, minSelections: 1 },
+      next: { type: 'direct', stepId: 'result' }
+    }
+
+    expect(validateStepAnswer(step, undefined)).toEqual({
+      success: false,
+      error: 'Выберите хотя бы один вариант'
+    })
   })
 })

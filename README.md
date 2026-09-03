@@ -2,6 +2,25 @@
 
 Fullstack workspace for a configurable funnel runtime.
 
+- Repository: [github.com/lina-gritsel/funnel](https://github.com/lina-gritsel/funnel)
+- Public demo: deploy-ready; the final URL is added after connecting a hosting account
+
+## Acceptance matrix
+
+| Assignment area                                  | Implementation evidence                                                        | Status   |
+| ------------------------------------------------ | ------------------------------------------------------------------------------ | -------- |
+| Dynamic 6+ step funnel, branching and validation | JSON contracts, independent funnel engine and config-driven React renderer     | Complete |
+| Back, refresh and repeated opening               | Server-persisted trail/answers plus session and draft restoration              | Complete |
+| Version publication, pinning and rollback        | Transactional version service and immutable session version                    | Complete |
+| Stable backend A/B assignment and override       | Weighted server assignment with `?variant=A\|B` test override                  | Complete |
+| Seven events, batching and idempotency           | Server-owned transition events plus validated client interaction outbox        | Complete |
+| Unique-session analytics                         | Step conversion/dropoff, result rate, CTA CTR, A/B, version and UTM views      | Complete |
+| 100-session traffic generator                    | Deterministic public-API generator with duplicate and out-of-order delivery    | Complete |
+| Second iteration                                 | v2 branch, B-only step removal, custom event, publish and rollback             | Complete |
+| Automated verification                           | Unit/integration suite, production smoke path and Playwright lifecycle E2E     | Complete |
+| Reproducible production path                     | Compiled server, same-origin SPA, Dockerfile, healthcheck and Render Blueprint | Complete |
+| Working public URL                               | Requires connecting the private repository to the chosen hosting account       | Pending  |
+
 ## Requirements
 
 - Node.js 20+
@@ -66,6 +85,13 @@ Open `http://localhost:3001` for the funnel and `http://localhost:3001/admin` fo
 administration area. The named volume keeps SQLite data between container replacements. The image
 contains a healthcheck for `/api/health`.
 
+For a hosted demo, `render.yaml` defines the same Docker service and can be launched with the
+[Render Blueprint](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Flina-gritsel%2Ffunnel).
+Because the repository is private, the hosting account must first grant Render access to it. The free
+Blueprint uses ephemeral SQLite storage; attach a persistent disk at `/data` and change `SQLITE_PATH`
+to `/data/funnel.db` when demo data must survive service replacement. Share the generated admin token
+with the reviewer separately.
+
 The equivalent non-container startup is:
 
 ```bash
@@ -94,6 +120,54 @@ packages/contracts       Shared API/config contracts
 packages/funnel-engine   Framework-independent funnel logic
 configs                  Versioned sample funnel configurations
 ```
+
+## Architecture
+
+```text
+React SPA
+├── funnel runtime ── public session API
+├── admin UI ──────── token-protected config and analytics API
+└── event outbox ──── batched interaction events
+                         │
+Fastify API ─────────────┤
+├── config service       ├── shared Zod contracts
+├── session service      ├── framework-independent funnel engine
+├── event service        └── SQLite
+└── analytics service
+```
+
+The server is authoritative for the active config, assigned version and variant, route, submitted
+answers and transition events. The browser renders the resolved config and sends only user intent.
+Shared contracts keep API payloads, configs and the runtime engine aligned.
+
+## Data model
+
+| Table                   | Key data and responsibility                                                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `funnel_versions`       | Composite key `(funnel_id, version)`, immutable config JSON, lifecycle status and publication timestamps. A partial unique index permits one active version. |
+| `sessions`              | Session ID, pinned funnel version and variant, current step, complete trail, cursor, answers, UTM values and completion timestamp.                           |
+| `events`                | Unique `event_id`, session, event name, client/server time, server-enriched version/variant/UTM, step and non-sensitive properties.                          |
+| `session_reached_steps` | Unique `(session_id, step_id)` evidence used to reject events for steps the session never reached.                                                           |
+
+`sessions` logically reference a retained funnel version. Events and reached steps reference their
+session. Archived configs are never deleted, allowing old sessions and historical analytics to keep
+working after publication or rollback.
+
+## Event contract and trust boundary
+
+| Field                            | Source                                        | Rule                                                                                                                                      |
+| -------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `event_id`                       | Client for UI events; server for state events | Globally unique; a repeated ID is reported as a duplicate and not inserted again.                                                         |
+| `session_id`                     | Client request                                | Must identify an existing session.                                                                                                        |
+| `event_name`                     | Client or server                              | Client may send reached-step views and result interactions; answer, completion, back and custom events are produced by session mutations. |
+| `client_timestamp`               | Client request                                | Retained for delivery analysis; not used as the authoritative ordering clock.                                                             |
+| `server_timestamp`               | API                                           | Assigned on receipt or in the session transaction.                                                                                        |
+| `funnel_version`, `variant`, UTM | API from session                              | Client values are not trusted or accepted.                                                                                                |
+| `step_id`                        | Client or server                              | Must exist in the pinned resolved variant and have been reached; result events require a result step.                                     |
+| `properties`                     | Client or server                              | Raw answers and answer-like keys are rejected from analytics events.                                                                      |
+
+State mutation, reached-step recording and server-owned events share a SQLite transaction. A malformed
+event is rejected independently, so it cannot poison the rest of a batch.
 
 The bundled `configs/funnel-v1.json` contains seven screens, a conditional branch and A/B variants.
 On the first start, the backend validates it and seeds SQLite with active version 1. The second local
@@ -191,3 +265,55 @@ goal; variant B starts with the amount and uses different result copy. The prima
   events, unique-session analytics and deterministic synthetic traffic.
 - Iteration 2: a second JSON config with a new conditional route, a B-only screen removal, a
   config-declared event, publication with pinned legacy sessions and rollback without analytics loss.
+
+## Architecture decisions
+
+1. **Config as validated data.** Zod validates structure and graph invariants for A and B before a
+   draft can be published. Preview enumerates reachable routes and result terminals.
+2. **Versions are pinned, not migrated.** A session stores its version and always resolves against
+   that config. Publication is a pointer switch for future sessions; rollback is the same operation in
+   reverse.
+3. **The server owns state-derived events.** Answer submission, completion, Back and custom events are
+   emitted inside session mutations. Client events are limited to observable UI interactions and are
+   checked against the server-confirmed route.
+4. **Delivery is at least once.** The browser outbox batches, retries and uses `sendBeacon`; the unique
+   event ID makes repeated delivery safe.
+5. **SQLite keeps the exercise reproducible.** Transactions and a partial unique index provide useful
+   integrity without an external service. The application stays deployable as one container.
+6. **Admin protection is deliberately small.** A constant-time shared-token check protects mutations,
+   history and analytics without introducing an unrelated user-management subsystem.
+
+## Assumptions and known limitations
+
+- One funnel family is bundled and seeded. The schema supports versions of that funnel, not a
+  multi-tenant funnel catalogue.
+- SQLite is intended for a single application instance. Horizontal scaling would require a shared
+  database and coordinated publication transactions.
+- The free Render Blueprint uses ephemeral storage. Production-like persistence requires a mounted
+  disk at `/data`, as shown by the Docker setup.
+- `ADMIN_TOKEN` is shared reviewer access, not per-user authentication, authorization or audit logging.
+- Submitted state lives on the server. An unsubmitted field draft is scoped to the browser tab in
+  `sessionStorage`, survives refresh, and is cleared after the step changes.
+- Client timestamps are informational; server timestamps and server-confirmed session state are the
+  source of truth.
+- Analytics deliberately expose aggregate counts without date-range segmentation or data export.
+- The JSON upload page is an internal publishing tool, not a visual funnel editor.
+
+## AI-assisted development process
+
+AI agents were used as implementation and review tools, while the repository owner remained
+responsible for scope, source review and final verification.
+
+1. The assignment was decomposed into contracts/engine, UI, persistence, events, analytics, traffic
+   generation and second-iteration versioning.
+2. Each slice was implemented in a separate commit and checked with types and focused tests before the
+   next slice.
+3. A separate adversarial review reproduced two high-risk failures: publishable graph cycles and
+   forged result analytics.
+4. The fixes moved graph safety into config validation and state-derived events into server-owned
+   session transactions, with regression tests for both attacks.
+5. Production serving, admin protection and the complete browser lifecycle were then verified through
+   build, API smoke checks and Playwright.
+
+The commit sequence documents this process. In particular, `f4eb0ea` contains the adversarial
+hardening, `a24b808` adds the production/security boundary, and `b688606` adds browser E2E and CI.

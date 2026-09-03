@@ -28,6 +28,43 @@ type FunnelRuntimeState = {
   setError: (message: string | null) => void
 }
 
+const draftStoragePrefix = 'funnel-draft'
+
+function draftStorageKey(sessionId: string, stepId: string) {
+  return `${draftStoragePrefix}:${sessionId}:${stepId}`
+}
+
+function isFunnelAnswer(value: unknown): value is FunnelAnswer {
+  return (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    (Array.isArray(value) && value.every((item) => typeof item === 'string'))
+  )
+}
+
+function readDraft(sessionId: string, stepId: string): FunnelAnswer | undefined {
+  if (typeof window === 'undefined') return undefined
+
+  try {
+    const source = window.sessionStorage.getItem(draftStorageKey(sessionId, stepId))
+    if (source === null) return undefined
+    const value: unknown = JSON.parse(source)
+    return isFunnelAnswer(value) ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeDraft(sessionId: string, stepId: string, value: FunnelAnswer) {
+  if (typeof window === 'undefined') return
+  window.sessionStorage.setItem(draftStorageKey(sessionId, stepId), JSON.stringify(value))
+}
+
+function clearDraft(sessionId: string, stepId: string) {
+  if (typeof window === 'undefined') return
+  window.sessionStorage.removeItem(draftStorageKey(sessionId, stepId))
+}
+
 export const useFunnelRuntimeStore = create<FunnelRuntimeState>((set, get) => ({
   session: null,
   funnel: null,
@@ -44,23 +81,30 @@ export const useFunnelRuntimeStore = create<FunnelRuntimeState>((set, get) => ({
       trail: session.trail,
       cursor: session.cursor,
       answers: session.answers,
-      draft: session.answers[session.currentStepId],
+      draft: readDraft(session.id, session.currentStepId) ?? session.answers[session.currentStepId],
       error: null
     })
   },
 
   applySession(session) {
+    const previousSession = get().session
+    if (previousSession && previousSession.currentStepId !== session.currentStepId) {
+      clearDraft(previousSession.id, previousSession.currentStepId)
+    }
+
     set({
       session,
       trail: session.trail,
       cursor: session.cursor,
       answers: session.answers,
-      draft: session.answers[session.currentStepId],
+      draft: readDraft(session.id, session.currentStepId) ?? session.answers[session.currentStepId],
       error: null
     })
   },
 
   setDraft(value) {
+    const session = get().session
+    if (session) writeDraft(session.id, session.currentStepId, value)
     set({ draft: value, error: null })
   },
 

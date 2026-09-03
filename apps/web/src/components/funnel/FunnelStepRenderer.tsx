@@ -93,7 +93,7 @@ export function FunnelStepRenderer({
       {error ? <FormError>{error}</FormError> : null}
 
       <StepActions
-        continueLabel={step.type === 'info' ? 'Начать' : 'Продолжить'}
+        continueLabel={step.type === 'info' && !canGoBack ? 'Начать' : 'Продолжить'}
         disabled={isLoading}
         isLoading={isLoading}
         onContinue={onContinue}

@@ -1,11 +1,25 @@
 import { FunnelConfigSchema, type FunnelSession } from '@funnel/contracts'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import configJson from '../../../../configs/funnel-v1.json'
 import { useFunnelRuntimeStore } from './funnel-runtime'
 
 const config = FunnelConfigSchema.parse(configJson)
 const timestamp = '2026-09-03T10:00:00.000Z'
+
+function memoryStorage(): Storage {
+  const values = new Map<string, string>()
+  return {
+    get length() {
+      return values.size
+    },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => values.delete(key),
+    setItem: (key, value) => values.set(key, value)
+  }
+}
 
 function session(overrides: Partial<FunnelSession> = {}): FunnelSession {
   return {
@@ -26,8 +40,11 @@ function session(overrides: Partial<FunnelSession> = {}): FunnelSession {
 }
 
 beforeEach(() => {
+  vi.stubGlobal('window', { sessionStorage: memoryStorage() })
   useFunnelRuntimeStore.getState().hydrate({ config, session: session() })
 })
+
+afterEach(() => vi.unstubAllGlobals())
 
 describe('funnel runtime store', () => {
   it('hydrates the saved server step and answer', () => {
@@ -80,5 +97,20 @@ describe('funnel runtime store', () => {
       success: true,
       data: 500000
     })
+  })
+
+  it('restores an unsubmitted draft after hydration', () => {
+    const amountSession = session({
+      currentStepId: 'amount',
+      trail: ['welcome', 'goal', 'amount'],
+      cursor: 2,
+      answers: { goal: 'invest' }
+    })
+
+    useFunnelRuntimeStore.getState().hydrate({ config, session: amountSession })
+    useFunnelRuntimeStore.getState().setDraft('125000')
+    useFunnelRuntimeStore.getState().hydrate({ config, session: amountSession })
+
+    expect(useFunnelRuntimeStore.getState().draft).toBe('125000')
   })
 })

@@ -34,6 +34,7 @@ test('versioned A/B funnel survives refresh, publish and rollback', async ({ bro
     await expect(
       variantA.getByRole('heading', { name: 'С какой суммой вы планируете работать?' })
     ).toBeVisible()
+    await variantA.getByLabel('Сумма').fill('42000')
 
     const sessionBeforeRefresh = await variantA.evaluate("localStorage.getItem('funnel-session:A')")
     await variantA.reload()
@@ -41,6 +42,7 @@ test('versioned A/B funnel survives refresh, publish and rollback', async ({ bro
     await expect(
       variantA.getByRole('heading', { name: 'С какой суммой вы планируете работать?' })
     ).toBeVisible()
+    await expect(variantA.getByLabel('Сумма')).toHaveValue('42000')
     await expect
       .poll(() => variantA.evaluate("localStorage.getItem('funnel-session:A')"))
       .toBe(sessionBeforeRefresh)
@@ -93,7 +95,7 @@ test('versioned A/B funnel survives refresh, publish and rollback', async ({ bro
     await selectMultipleAndContinue(variantA, 'Быстрый старт')
     await selectSingleAndContinue(variantA, 'Только начинаю')
     await expect(variantA.getByRole('heading', { name: 'Начнём с понятной основы' })).toBeVisible()
-    await continueFunnel(variantA, 'Начать')
+    await continueFunnel(variantA)
     await expect(variantA.getByRole('heading', { name: 'Рекомендация готова' })).toBeVisible()
 
     await expectVersion(variantB, 1, 'B')
