@@ -189,7 +189,7 @@ export function summarizeTrafficPlan(
       if (stepId === scenario.dropAt) break
 
       if (stepId === 'result') {
-        if (scenario.clickCta) step.completed += 1
+        step.completed += 1
         break
       }
 

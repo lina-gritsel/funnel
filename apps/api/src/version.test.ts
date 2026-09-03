@@ -1,8 +1,5 @@
-import { randomUUID } from 'node:crypto'
-
 import {
   AnalyticsResponseSchema,
-  EventBatchResponseSchema,
   FunnelConfigSchema,
   FunnelVersionsResponseSchema,
   SessionBootstrapResponseSchema,
@@ -120,25 +117,6 @@ describe('funnel versioning', () => {
       currentStepId = response.session.currentStepId
     }
     expect(currentStepId).toBe('result')
-
-    const customEvent = {
-      eventId: randomUUID(),
-      sessionId: v2Session.session.id,
-      name: 'investment_horizon_selected',
-      clientTimestamp: new Date().toISOString(),
-      stepId: 'horizon',
-      properties: { next_step_id: 'liquidity' }
-    }
-    const eventResult = EventBatchResponseSchema.parse(
-      (
-        await app.inject({
-          method: 'POST',
-          url: '/api/events/batch',
-          payload: { events: [customEvent] }
-        })
-      ).json()
-    )
-    expect(eventResult.accepted).toEqual([customEvent.eventId])
 
     const restoredV1 = SessionBootstrapResponseSchema.parse(
       (

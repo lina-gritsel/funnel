@@ -107,30 +107,11 @@ function answerFor(stepId: TrafficStepId, scenario: TrafficScenario): FunnelAnsw
   }
 }
 
-function answerProperties(stepId: TrafficStepId, answer: FunnelAnswer | undefined) {
-  switch (stepId) {
-    case 'goal':
-    case 'experience':
-    case 'horizon':
-      return { answer_type: 'single-select' }
-    case 'amount':
-      return { answer_type: 'number' }
-    case 'priorities':
-      return {
-        answer_type: 'multi-select',
-        selected_count: Array.isArray(answer) ? answer.length : 0
-      }
-    default:
-      return null
-  }
-}
-
 async function submitStep({
   sessionId,
   stepId,
   expectedNextStepId,
   scenario,
-  customEvents,
   timeline,
   events
 }: {
@@ -138,16 +119,15 @@ async function submitStep({
   stepId: TrafficStepId
   expectedNextStepId: TrafficStepId
   scenario: TrafficScenario
-  customEvents: FunnelCustomEvent[]
   timeline: Timeline
   events: ClientFunnelEvent[]
 }) {
   const answer = answerFor(stepId, scenario)
-  const timestamp = timeline.next()
   const response = await postJson(
     `/api/sessions/${sessionId}/answers`,
     {
       stepId,
+      clientTimestamp: timeline.next(),
       ...(answer !== undefined ? { answer } : {})
     },
     (value) => SessionStateResponseSchema.parse(value)
@@ -159,27 +139,11 @@ async function submitStep({
     )
   }
 
-  const properties = answerProperties(stepId, answer)
-  if (properties) {
-    events.push(createEvent(sessionId, 'answer_submitted', stepId, timestamp, properties))
-  }
   events.push(
-    createEvent(sessionId, 'step_completed', stepId, timestamp, {
-      next_step_id: expectedNextStepId
-    }),
     createEvent(sessionId, 'step_viewed', expectedNextStepId, timeline.next(), {
       view_reason: 'forward'
     })
   )
-  customEvents
-    .filter((event) => event.trigger === 'step_completed' && event.stepId === stepId)
-    .forEach((event) =>
-      events.push(
-        createEvent(sessionId, event.name, stepId, timestamp, {
-          next_step_id: expectedNextStepId
-        })
-      )
-    )
   if (expectedNextStepId === 'result') {
     events.push(createEvent(sessionId, 'result_viewed', 'result', timeline.next()))
   }
@@ -250,18 +214,15 @@ async function runScenario(scenario: TrafficScenario, expectedVersion: number) {
     if (scenario.useBack && stepId === 'priorities' && !usedBack) {
       const previousStepId = route[routeIndex - 1]
       if (!previousStepId) throw new Error('Back scenario requires a previous step')
-      const backTimestamp = timeline.next()
-      const back = await postJson(`/api/sessions/${sessionId}/back`, {}, (value) =>
-        SessionStateResponseSchema.parse(value)
+      const back = await postJson(
+        `/api/sessions/${sessionId}/back`,
+        { clientTimestamp: timeline.next() },
+        (value) => SessionStateResponseSchema.parse(value)
       )
       if (back.session.currentStepId !== previousStepId) {
         throw new Error(`Session ${sessionId} returned to an unexpected step`)
       }
       events.push(
-        createEvent(sessionId, 'back_clicked', 'priorities', backTimestamp, {
-          from_step_id: 'priorities',
-          to_step_id: previousStepId
-        }),
         createEvent(sessionId, 'step_viewed', previousStepId, timeline.next(), {
           view_reason: 'back'
         })
@@ -271,7 +232,6 @@ async function runScenario(scenario: TrafficScenario, expectedVersion: number) {
         stepId: previousStepId,
         expectedNextStepId: 'priorities',
         scenario,
-        customEvents: bootstrap.config.customEvents,
         timeline,
         events
       })
@@ -285,7 +245,6 @@ async function runScenario(scenario: TrafficScenario, expectedVersion: number) {
       stepId,
       expectedNextStepId: nextStepId,
       scenario,
-      customEvents: bootstrap.config.customEvents,
       timeline,
       events
     })

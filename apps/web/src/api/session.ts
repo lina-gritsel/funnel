@@ -73,14 +73,18 @@ export async function submitSessionAnswer(
   const response = await fetch(`/api/sessions/${sessionId}/answers`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(input)
+    body: JSON.stringify({ ...input, clientTimestamp: new Date().toISOString() })
   })
   if (!response.ok) throw new Error(await errorMessage(response, 'Не удалось сохранить ответ'))
   return SessionStateResponseSchema.parse(await response.json())
 }
 
 export async function moveSessionBack(sessionId: string): Promise<SessionStateResponse> {
-  const response = await fetch(`/api/sessions/${sessionId}/back`, { method: 'POST' })
+  const response = await fetch(`/api/sessions/${sessionId}/back`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ clientTimestamp: new Date().toISOString() })
+  })
   if (!response.ok) throw new Error(await errorMessage(response, 'Не удалось вернуться назад'))
   return SessionStateResponseSchema.parse(await response.json())
 }

@@ -15,7 +15,7 @@ type StepRow = {
   step_id: string
   viewed: number
   completed: number
-  cta_clicked: number
+  result_viewed: number
 }
 type EventRow = { name: string; sessions: number }
 
@@ -69,9 +69,11 @@ export class AnalyticsService {
       .prepare(
         `SELECT
           step_id,
-          COUNT(DISTINCT CASE WHEN event_name = 'step_viewed' THEN session_id END) AS viewed,
+          COUNT(DISTINCT CASE
+            WHEN event_name IN ('step_viewed', 'result_viewed') THEN session_id
+          END) AS viewed,
           COUNT(DISTINCT CASE WHEN event_name = 'step_completed' THEN session_id END) AS completed,
-          COUNT(DISTINCT CASE WHEN event_name = 'cta_clicked' THEN session_id END) AS cta_clicked
+          COUNT(DISTINCT CASE WHEN event_name = 'result_viewed' THEN session_id END) AS result_viewed
          FROM events ${where} GROUP BY step_id`
       )
       .all(params) as StepRow[]
@@ -119,9 +121,9 @@ export class AnalyticsService {
           step_id: step.id,
           viewed: 0,
           completed: 0,
-          cta_clicked: 0
+          result_viewed: 0
         }
-        const completed = step.type === 'result' ? row.cta_clicked : row.completed
+        const completed = step.type === 'result' ? row.result_viewed : row.completed
         return {
           stepId: step.id,
           title: step.title,

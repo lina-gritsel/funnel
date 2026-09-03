@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { resolveVariant } from '@funnel/engine'
 
-import { loadActiveFunnelConfig, loadFunnelConfig, parseFunnelConfig } from './funnel-config.js'
+import {
+  loadActiveFunnelConfig,
+  loadFunnelConfig,
+  parseFunnelConfig,
+  previewFunnelConfig
+} from './funnel-config.js'
 
 describe('funnel config', () => {
   it('loads the active config with six or more screens and a branch', async () => {
@@ -23,6 +28,32 @@ describe('funnel config', () => {
     expect(() => parseFunnelConfig(config)).toThrow(
       'Transition references unknown step missing-step'
     )
+  })
+
+  it('rejects a cycle that would crash runtime progress calculation', () => {
+    const config = structuredClone(loadFunnelConfig(1))
+    const education = config.steps.find((step) => step.id === 'education')
+    if (!education || education.type !== 'info') throw new Error('Education fixture is missing')
+
+    education.next = { type: 'direct', stepId: 'experience' }
+
+    expect(() => parseFunnelConfig(config)).toThrow(
+      'Variant A contains a cycle: experience -> education -> experience'
+    )
+  })
+
+  it('previews all safe variant routes before publication', () => {
+    const preview = previewFunnelConfig(loadFunnelConfig(2))
+
+    expect(preview).toMatchObject({
+      valid: true,
+      version: 2,
+      variants: {
+        A: { resultSteps: ['result'] },
+        B: { resultSteps: ['result'] }
+      }
+    })
+    expect(preview.variants.A.routes).toBeGreaterThan(1)
   })
 
   it('loads the second iteration with a new branch, hidden B screen and custom event', () => {

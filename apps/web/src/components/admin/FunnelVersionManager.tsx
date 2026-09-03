@@ -2,7 +2,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { FunnelVersionsResponse } from '@funnel/contracts'
 import { useState } from 'react'
 
-import { createFunnelVersion, publishFunnelVersion, rollbackFunnelVersion } from '../../api/funnel'
+import {
+  createFunnelVersion,
+  publishFunnelVersion,
+  rollbackFunnelVersion,
+  validateFunnelConfig
+} from '../../api/funnel'
 import { Button } from '../ui/Button'
 
 const statusLabel = {
@@ -17,6 +22,15 @@ export function FunnelVersionManager({ data }: { data: FunnelVersionsResponse })
   const [fileName, setFileName] = useState('')
   const [localError, setLocalError] = useState('')
 
+  const parsedSource = () => {
+    setLocalError('')
+    try {
+      return JSON.parse(source) as unknown
+    } catch {
+      throw new Error('Файл содержит некорректный JSON')
+    }
+  }
+
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['active-funnel'] }),
@@ -25,20 +39,20 @@ export function FunnelVersionManager({ data }: { data: FunnelVersionsResponse })
     ])
   }
 
+  const validateMutation = useMutation({
+    mutationFn: () => validateFunnelConfig(parsedSource())
+  })
+
   const createMutation = useMutation({
-    mutationFn: () => {
-      setLocalError('')
-      let config: unknown
-      try {
-        config = JSON.parse(source) as unknown
-      } catch {
-        throw new Error('Файл содержит некорректный JSON')
-      }
+    mutationFn: async () => {
+      const config = parsedSource()
+      await validateFunnelConfig(config)
       return createFunnelVersion(config)
     },
     onSuccess: async () => {
       setSource('')
       setFileName('')
+      validateMutation.reset()
       await refresh()
     }
   })
@@ -55,6 +69,7 @@ export function FunnelVersionManager({ data }: { data: FunnelVersionsResponse })
 
   const mutationError =
     createMutation.error?.message ??
+    validateMutation.error?.message ??
     publishMutation.error?.message ??
     rollbackMutation.error?.message ??
     localError
@@ -103,6 +118,7 @@ export function FunnelVersionManager({ data }: { data: FunnelVersionsResponse })
               if (!file) return
               setFileName(file.name)
               setLocalError('')
+              validateMutation.reset()
               void file
                 .text()
                 .then(setSource)
@@ -110,11 +126,37 @@ export function FunnelVersionManager({ data }: { data: FunnelVersionsResponse })
             }}
           />
           <div className="mt-5 flex flex-wrap items-center gap-4">
-            <Button type="submit" isLoading={createMutation.isPending}>
+            <Button
+              type="button"
+              variant="secondary"
+              isLoading={validateMutation.isPending}
+              onClick={() => {
+                if (!source) {
+                  setLocalError('Сначала выберите JSON-файл')
+                  return
+                }
+                validateMutation.mutate()
+              }}
+            >
+              Проверить конфигурацию
+            </Button>
+            <Button
+              type="submit"
+              isLoading={createMutation.isPending}
+              disabled={validateMutation.isPending}
+            >
               Сохранить черновик
             </Button>
             {fileName ? <span className="text-sm text-muted">{fileName}</span> : null}
           </div>
+          {validateMutation.data ? (
+            <p className="mt-4 border-l-2 border-success pl-3 text-sm text-success">
+              Проверка пройдена: A — {validateMutation.data.variants.A.reachableSteps} шагов /{' '}
+              {validateMutation.data.variants.A.routes} маршрутов; B —{' '}
+              {validateMutation.data.variants.B.reachableSteps} шагов /{' '}
+              {validateMutation.data.variants.B.routes} маршрутов.
+            </p>
+          ) : null}
           {mutationError ? (
             <p className="mt-4 border-l-2 border-danger pl-3 text-sm text-danger">
               {mutationError}

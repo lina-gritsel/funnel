@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import type {
+  BackSessionRequest,
   CreateSessionRequest,
   FunnelAnswers,
   FunnelConfig,
@@ -139,6 +140,7 @@ export class SessionService {
           completedAt: session.completedAt
         })
       this.events.recordSessionStarted(session, input.clientTimestamp)
+      this.events.markStepReached(session.id, session.currentStepId, timestamp)
     })()
 
     return { session, config }
@@ -158,6 +160,7 @@ export class SessionService {
 
     const config = this.configs.getVersion(session.version)
     const funnel = resolveVariant(config, session.variant)
+    const completedStep = getStep(funnel, session.currentStepId)
     const result = advanceRuntime(
       funnel,
       { trail: session.trail, cursor: session.cursor, answers: session.answers },
@@ -179,11 +182,24 @@ export class SessionService {
       completedAt: completed ? (session.completedAt ?? updatedAt) : null
     }
 
-    this.update(updated)
+    this.database.transaction(() => {
+      this.update(updated)
+      this.events.markStepReached(updated.id, updated.currentStepId, updatedAt)
+      this.events.recordStepCompleted({
+        session: updated,
+        step: completedStep,
+        ...(result.snapshot.answers[completedStep.id] !== undefined
+          ? { answer: result.snapshot.answers[completedStep.id] }
+          : {}),
+        nextStepId: updated.currentStepId,
+        clientTimestamp: input.clientTimestamp ?? updatedAt,
+        serverTimestamp: updatedAt
+      })
+    })()
     return { session: updated }
   }
 
-  async back(id: string): Promise<SessionStateResponse> {
+  async back(id: string, input: BackSessionRequest = {}): Promise<SessionStateResponse> {
     const session = this.getSession(id)
     const snapshot = moveRuntimeBack({
       trail: session.trail,
@@ -201,7 +217,16 @@ export class SessionService {
       completedAt: null
     }
 
-    this.update(updated)
+    this.database.transaction(() => {
+      this.update(updated)
+      this.events.recordBackClicked({
+        session: updated,
+        fromStepId: session.currentStepId,
+        toStepId: updated.currentStepId,
+        clientTimestamp: input.clientTimestamp ?? updated.updatedAt,
+        serverTimestamp: updated.updatedAt
+      })
+    })()
     return { session: updated }
   }
 

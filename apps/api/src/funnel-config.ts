@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url'
 import {
   FunnelConfigSchema,
   type FunnelConfig,
+  type FunnelConfigPreviewResponse,
   type FunnelVersionsResponse
 } from '@funnel/contracts'
+import { getPossibleRoutes, getStep, resolveVariant } from '@funnel/engine'
 
 import type { AppDatabase } from './database.js'
 
@@ -40,6 +42,36 @@ export function parseFunnelConfig(value: unknown): FunnelConfig {
   }
 
   return result.data
+}
+
+export function previewFunnelConfig(value: unknown): FunnelConfigPreviewResponse {
+  const config = parseFunnelConfig(value)
+
+  const previewVariant = (variantId: 'A' | 'B') => {
+    const funnel = resolveVariant(config, variantId)
+    const routes = getPossibleRoutes(funnel, {})
+    const reachableSteps = new Set(routes.flat())
+    const resultSteps = [
+      ...new Set(
+        routes.map((route) => route.at(-1)).filter((stepId): stepId is string => Boolean(stepId))
+      )
+    ].filter((stepId) => getStep(funnel, stepId).type === 'result')
+
+    return {
+      reachableSteps: reachableSteps.size,
+      routes: routes.length,
+      resultSteps
+    }
+  }
+
+  return {
+    valid: true,
+    version: config.version,
+    variants: {
+      A: previewVariant('A'),
+      B: previewVariant('B')
+    }
+  }
 }
 
 export class FunnelConfigNotFoundError extends Error {
@@ -168,6 +200,10 @@ export class FunnelConfigService {
     return draft
   }
 
+  preview(value: unknown): FunnelConfigPreviewResponse {
+    return previewFunnelConfig(value)
+  }
+
   publish(version: number): FunnelConfig {
     const active = this.getActive()
     const target = this.database
@@ -177,6 +213,8 @@ export class FunnelConfigService {
     if (target.status !== 'draft') {
       throw new FunnelConfigConflictError('Only a draft version can be published')
     }
+
+    previewFunnelConfig(JSON.parse(target.config_json) as unknown)
 
     const publishedAt = new Date().toISOString()
     this.database.transaction(() => {

@@ -62,7 +62,8 @@ function AnalyticsContent({ data }: { data: AnalyticsResponse }) {
           <p className="text-xs font-bold tracking-[0.12em] text-accent uppercase">Переходы</p>
           <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">Шаги воронки</h2>
           <p className="mt-2 text-sm leading-6 text-muted">
-            Отвал — сессии, увидевшие шаг, но не завершившие его.
+            Завершение — доля увидевших и закончивших шаг. Для результата завершением считается его
+            просмотр, а CTA измеряется отдельно.
           </p>
         </div>
         <ol className="divide-y divide-line border-y border-line">
@@ -78,7 +79,7 @@ function AnalyticsContent({ data }: { data: AnalyticsResponse }) {
                 </div>
                 <Metric label="Просмотры" value={step.viewed} compact />
                 <Metric label="Отвал" value={step.dropoff} compact />
-                <Metric label="Конверсия" value={percent(step.conversionRate)} compact />
+                <Metric label="Завершение" value={percent(step.conversionRate)} compact />
               </div>
               <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-line sm:ml-9">
                 <div

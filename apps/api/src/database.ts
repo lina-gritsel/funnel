@@ -57,11 +57,27 @@ export function createDatabase(databasePath = defaultDatabasePath) {
       FOREIGN KEY (session_id) REFERENCES sessions(id)
     );
 
+    CREATE TABLE IF NOT EXISTS session_reached_steps (
+      session_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      reached_at TEXT NOT NULL,
+      PRIMARY KEY (session_id, step_id),
+      FOREIGN KEY (session_id) REFERENCES sessions(id)
+    );
+
     CREATE INDEX IF NOT EXISTS events_session_id_idx ON events(session_id);
     CREATE INDEX IF NOT EXISTS events_name_idx ON events(event_name);
     CREATE INDEX IF NOT EXISTS events_campaign_idx ON events(utm_campaign);
+    CREATE INDEX IF NOT EXISTS session_reached_steps_step_idx
+      ON session_reached_steps(step_id);
     CREATE UNIQUE INDEX IF NOT EXISTS funnel_versions_active_idx
       ON funnel_versions(funnel_id) WHERE status = 'active';
+  `)
+
+  database.exec(`
+    INSERT OR IGNORE INTO session_reached_steps (session_id, step_id, reached_at)
+    SELECT sessions.id, json_each.value, sessions.updated_at
+    FROM sessions, json_each(sessions.trail_json);
   `)
   return database
 }

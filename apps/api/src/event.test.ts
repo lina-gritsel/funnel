@@ -30,6 +30,22 @@ async function createSession(
   return SessionBootstrapResponseSchema.parse(response.json()).session
 }
 
+async function reachResult(app: ReturnType<typeof buildApp>, sessionId: string) {
+  for (const payload of [
+    { stepId: 'welcome' },
+    { stepId: 'goal', answer: 'invest' },
+    { stepId: 'amount', answer: 500000 },
+    { stepId: 'priorities', answer: ['support'] },
+    { stepId: 'experience', answer: 'experienced' }
+  ]) {
+    await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sessionId}/answers`,
+      payload
+    })
+  }
+}
+
 function event(sessionId: string, name: string, stepId: string) {
   return {
     eventId: randomUUID(),
@@ -84,7 +100,7 @@ describe('event ingestion', () => {
     const app = createApp()
     const session = await createSession(app)
     const submitted = {
-      ...event(session.id, 'answer_submitted', 'goal'),
+      ...event(session.id, 'step_viewed', 'welcome'),
       properties: { answer: 'invest' }
     }
     const result = EventBatchResponseSchema.parse(
@@ -100,7 +116,7 @@ describe('event ingestion', () => {
     expect(result.rejected[0]?.message).toContain('Raw answers')
   })
 
-  it('rejects a custom event that is not declared by the pinned config', async () => {
+  it('rejects server-authored events submitted by a client', async () => {
     const app = createApp()
     const session = await createSession(app)
     const custom = event(session.id, 'investment_horizon_selected', 'horizon')
@@ -115,7 +131,31 @@ describe('event ingestion', () => {
     )
 
     expect(result.accepted).toEqual([])
-    expect(result.rejected[0]?.message).toContain('not configured')
+    expect(result.rejected).toHaveLength(1)
+  })
+
+  it('rejects forged result events and unknown steps', async () => {
+    const app = createApp()
+    const session = await createSession(app)
+    const forgedResult = event(session.id, 'result_viewed', 'result')
+    const unknownStep = event(session.id, 'step_viewed', 'not-a-real-step')
+    const result = EventBatchResponseSchema.parse(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/events/batch',
+          payload: { events: [forgedResult, unknownStep] }
+        })
+      ).json()
+    )
+
+    expect(result.accepted).toEqual([])
+    expect(result.rejected).toHaveLength(2)
+
+    const analytics = AnalyticsResponseSchema.parse(
+      (await app.inject({ method: 'GET', url: '/api/analytics' })).json()
+    )
+    expect(analytics.totals.resultReached).toBe(0)
   })
 })
 
@@ -124,10 +164,10 @@ describe('analytics', () => {
     const app = createApp()
     const sessionA = await createSession(app, 'A', 'alpha')
     const sessionB = await createSession(app, 'B', 'beta')
+    await reachResult(app, sessionA.id)
     const events = [
       event(sessionA.id, 'result_viewed', 'result'),
       event(sessionA.id, 'cta_clicked', 'result'),
-      event(sessionA.id, 'step_completed', 'welcome'),
       event(sessionA.id, 'step_viewed', 'result'),
       event(sessionA.id, 'step_viewed', 'result'),
       event(sessionB.id, 'step_viewed', 'welcome'),
@@ -152,5 +192,25 @@ describe('analytics', () => {
     expect(all.steps.find((step) => step.stepId === 'result')?.viewed).toBe(1)
     expect(alpha.totals.sessionsStarted).toBe(1)
     expect(alpha.campaigns).toEqual(['alpha', 'beta'])
+  })
+
+  it('treats viewing a result as completion without requiring a CTA click', async () => {
+    const app = createApp()
+    const session = await createSession(app)
+    await reachResult(app, session.id)
+    const resultViewed = event(session.id, 'result_viewed', 'result')
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/events/batch',
+      payload: { events: [resultViewed] }
+    })
+    const analytics = AnalyticsResponseSchema.parse(
+      (await app.inject({ method: 'GET', url: '/api/analytics' })).json()
+    )
+    const resultStep = analytics.steps.find((step) => step.stepId === 'result')
+
+    expect(analytics.totals).toMatchObject({ resultReached: 1, ctaClicked: 0, ctaCtr: 0 })
+    expect(resultStep).toMatchObject({ viewed: 1, completed: 1, dropoff: 0, conversionRate: 100 })
   })
 })

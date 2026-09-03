@@ -1,6 +1,8 @@
+import { FunnelConfigPreviewResponseSchema } from '@funnel/contracts'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { buildApp } from './app.js'
+import { loadFunnelConfig } from './funnel-config.js'
 
 const apps: ReturnType<typeof buildApp>[] = []
 
@@ -48,5 +50,20 @@ describe('active funnel endpoint', () => {
         }
       }
     })
+  })
+
+  it('offers a dry-run preview for a safe configuration', async () => {
+    const app = buildApp({ databasePath: ':memory:' })
+    apps.push(app)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/funnels/validate',
+      payload: { config: loadFunnelConfig(2) }
+    })
+    const preview = FunnelConfigPreviewResponseSchema.parse(response.json())
+
+    expect(response.statusCode).toBe(200)
+    expect(preview).toMatchObject({ valid: true, version: 2 })
   })
 })

@@ -336,6 +336,52 @@ export const FunnelConfigSchema = FunnelConfigBaseSchema.superRefine((config, co
         message: `Variant ${variantId} cannot reach a result step`
       })
     }
+
+    const visitState = new Map<string, 'visiting' | 'visited'>()
+    const reportedCycles = new Set<string>()
+
+    const verifyRoute = (stepId: string, path: string[]) => {
+      if (!uniqueStepIds.has(stepId) || variant.stepOverrides[stepId]?.hidden) return
+
+      if (visitState.get(stepId) === 'visiting') {
+        const cycleStart = path.indexOf(stepId)
+        const cycle = [...path.slice(Math.max(cycleStart, 0)), stepId].join(' -> ')
+        if (!reportedCycles.has(cycle)) {
+          reportedCycles.add(cycle)
+          context.addIssue({
+            code: 'custom',
+            path: ['experiment', 'variants', variantId],
+            message: `Variant ${variantId} contains a cycle: ${cycle}`
+          })
+        }
+        return
+      }
+
+      if (visitState.get(stepId) === 'visited') return
+
+      const step = stepsById.get(stepId)
+      if (!step) return
+
+      visitState.set(stepId, 'visiting')
+      const override = variant.stepOverrides[stepId]
+      const next = step.type === 'result' ? undefined : (override?.next ?? step.next)
+      const targets = transitionTargets(next).filter(
+        (targetId) => uniqueStepIds.has(targetId) && !variant.stepOverrides[targetId]?.hidden
+      )
+
+      if (targets.length === 0 && step.type !== 'result') {
+        context.addIssue({
+          code: 'custom',
+          path: ['experiment', 'variants', variantId],
+          message: `Variant ${variantId} route terminates at non-result step ${stepId}`
+        })
+      }
+
+      targets.forEach((targetId) => verifyRoute(targetId, [...path, stepId]))
+      visitState.set(stepId, 'visited')
+    }
+
+    verifyRoute(config.entryStepId, [])
   })
 })
 
@@ -375,8 +421,24 @@ export const CreateFunnelVersionRequestSchema = z.object({
   config: z.unknown()
 })
 
+const FunnelVariantPreviewSchema = z.object({
+  reachableSteps: z.number().int().min(1),
+  routes: z.number().int().min(1),
+  resultSteps: z.array(NonEmptyStringSchema).min(1)
+})
+
+export const FunnelConfigPreviewResponseSchema = z.object({
+  valid: z.literal(true),
+  version: z.number().int().positive(),
+  variants: z.object({
+    A: FunnelVariantPreviewSchema,
+    B: FunnelVariantPreviewSchema
+  })
+})
+
 export type FunnelVersionSummary = z.infer<typeof FunnelVersionSummarySchema>
 export type FunnelVersionsResponse = z.infer<typeof FunnelVersionsResponseSchema>
+export type FunnelConfigPreviewResponse = z.infer<typeof FunnelConfigPreviewResponseSchema>
 
 export const FunnelAnswerSchema = z.union([z.string(), z.number(), z.array(z.string())])
 export const FunnelAnswersSchema = z.record(z.string(), FunnelAnswerSchema)
@@ -404,7 +466,12 @@ export const CreateSessionRequestSchema = z.object({
 
 export const SubmitAnswerRequestSchema = z.object({
   stepId: NonEmptyStringSchema,
-  answer: FunnelAnswerSchema.optional()
+  answer: FunnelAnswerSchema.optional(),
+  clientTimestamp: z.iso.datetime().optional()
+})
+
+export const BackSessionRequestSchema = z.object({
+  clientTimestamp: z.iso.datetime().optional()
 })
 
 export const SessionStateResponseSchema = z.object({
@@ -419,6 +486,7 @@ export type FunnelAnswers = z.infer<typeof FunnelAnswersSchema>
 export type FunnelSession = z.infer<typeof FunnelSessionSchema>
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>
 export type SubmitAnswerRequest = z.infer<typeof SubmitAnswerRequestSchema>
+export type BackSessionRequest = z.infer<typeof BackSessionRequestSchema>
 export type SessionStateResponse = z.infer<typeof SessionStateResponseSchema>
 export type SessionBootstrapResponse = z.infer<typeof SessionBootstrapResponseSchema>
 
@@ -432,11 +500,7 @@ export const FunnelEventNameSchema = z.enum([
   'cta_clicked'
 ])
 
-export const ClientCoreFunnelEventNameSchema = FunnelEventNameSchema.exclude(['session_started'])
-export const ClientFunnelEventNameSchema = NonEmptyStringSchema.refine(
-  (name) => name !== 'session_started',
-  { message: 'session_started is created by the server' }
-)
+export const ClientFunnelEventNameSchema = z.enum(['step_viewed', 'result_viewed', 'cta_clicked'])
 
 export const FunnelEventPropertiesSchema = z.record(
   z.string(),

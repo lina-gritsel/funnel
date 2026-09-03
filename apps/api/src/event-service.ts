@@ -1,13 +1,15 @@
 import { randomUUID } from 'node:crypto'
 
 import {
-  ClientCoreFunnelEventNameSchema,
   ClientFunnelEventSchema,
   type ClientFunnelEvent,
   type EventBatchResponse,
+  type FunnelAnswer,
   type FunnelSession,
+  type FunnelStepConfig,
   type FunnelVariantId
 } from '@funnel/contracts'
+import { resolveVariant } from '@funnel/engine'
 
 import type { AppDatabase } from './database.js'
 import type { FunnelConfigService } from './funnel-config.js'
@@ -54,6 +56,81 @@ export class EventService {
     })
   }
 
+  recordStepCompleted(input: {
+    session: FunnelSession
+    step: FunnelStepConfig
+    answer?: FunnelAnswer
+    nextStepId: string
+    clientTimestamp: string
+    serverTimestamp: string
+  }) {
+    const { session, step, answer, nextStepId, clientTimestamp, serverTimestamp } = input
+
+    if (step.type !== 'info' && step.type !== 'result') {
+      this.insertForSession(session, {
+        name: 'answer_submitted',
+        stepId: step.id,
+        clientTimestamp,
+        serverTimestamp,
+        properties: {
+          answer_type: step.type,
+          ...(Array.isArray(answer) ? { selected_count: answer.length } : {})
+        }
+      })
+    }
+
+    this.insertForSession(session, {
+      name: 'step_completed',
+      stepId: step.id,
+      clientTimestamp,
+      serverTimestamp,
+      properties: { next_step_id: nextStepId }
+    })
+
+    this.configs
+      .getVersion(session.version)
+      .customEvents.filter(
+        (event) => event.trigger === 'step_completed' && event.stepId === step.id
+      )
+      .forEach((event) =>
+        this.insertForSession(session, {
+          name: event.name,
+          stepId: step.id,
+          clientTimestamp,
+          serverTimestamp,
+          properties: { next_step_id: nextStepId }
+        })
+      )
+  }
+
+  recordBackClicked(input: {
+    session: FunnelSession
+    fromStepId: string
+    toStepId: string
+    clientTimestamp: string
+    serverTimestamp: string
+  }) {
+    this.insertForSession(input.session, {
+      name: 'back_clicked',
+      stepId: input.fromStepId,
+      clientTimestamp: input.clientTimestamp,
+      serverTimestamp: input.serverTimestamp,
+      properties: {
+        from_step_id: input.fromStepId,
+        to_step_id: input.toStepId
+      }
+    })
+  }
+
+  markStepReached(sessionId: string, stepId: string, reachedAt: string) {
+    this.database
+      .prepare(
+        `INSERT OR IGNORE INTO session_reached_steps (session_id, step_id, reached_at)
+         VALUES (?, ?, ?)`
+      )
+      .run(sessionId, stepId, reachedAt)
+  }
+
   ingest(events: unknown[]): EventBatchResponse {
     const response: EventBatchResponse = { accepted: [], duplicates: [], rejected: [] }
 
@@ -97,7 +174,7 @@ export class EventService {
         response.rejected.push({
           index,
           eventId: event.eventId,
-          message: `Event ${event.name} is not configured for this funnel version and step`
+          message: `Event ${event.name} is not allowed for this funnel version, variant and session route`
         })
         return
       }
@@ -143,16 +220,49 @@ export class EventService {
   }
 
   private isAllowedEvent(event: ClientFunnelEvent, session: EventSessionRow) {
-    if (ClientCoreFunnelEventNameSchema.safeParse(event.name).success) return true
+    const config = this.configs.getVersion(session.funnel_version)
+    const funnel = resolveVariant(config, session.variant)
+    const step = funnel.steps.find((candidate) => candidate.id === event.stepId)
+    if (!step || !this.hasReachedStep(session.id, step.id)) return false
 
-    return this.configs
-      .getVersion(session.funnel_version)
-      .customEvents.some(
-        (customEvent) =>
-          customEvent.name === event.name &&
-          customEvent.trigger === 'step_completed' &&
-          customEvent.stepId === event.stepId
-      )
+    if (event.name === 'step_viewed') return true
+    return step.type === 'result'
+  }
+
+  private hasReachedStep(sessionId: string, stepId: string) {
+    return Boolean(
+      this.database
+        .prepare(
+          `SELECT 1 FROM session_reached_steps
+           WHERE session_id = ? AND step_id = ?`
+        )
+        .get(sessionId, stepId)
+    )
+  }
+
+  private insertForSession(
+    session: FunnelSession,
+    event: {
+      name: string
+      stepId: string
+      clientTimestamp: string
+      serverTimestamp: string
+      properties: Record<string, string | number | boolean | null>
+    }
+  ) {
+    this.insert({
+      eventId: randomUUID(),
+      sessionId: session.id,
+      name: event.name,
+      clientTimestamp: event.clientTimestamp,
+      serverTimestamp: event.serverTimestamp,
+      funnelId: session.funnelId,
+      version: session.version,
+      variant: session.variant,
+      stepId: event.stepId,
+      utm: session.utm,
+      properties: event.properties
+    })
   }
 
   private insert(event: {

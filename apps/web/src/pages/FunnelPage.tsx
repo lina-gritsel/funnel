@@ -1,10 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import type {
-  FunnelEventProperties,
-  FunnelStepConfig,
-  FunnelVariantId,
-  SubmitAnswerRequest
-} from '@funnel/contracts'
+import type { FunnelVariantId, SubmitAnswerRequest } from '@funnel/contracts'
 import { getProgress, getStep } from '@funnel/engine'
 import { useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -26,15 +21,6 @@ function collectUtm(searchParams: URLSearchParams): Record<string, string> {
   )
 }
 
-function answerProperties(step: FunnelStepConfig, answer: unknown): FunnelEventProperties | null {
-  if (step.type === 'info' || step.type === 'result') return null
-
-  return {
-    answer_type: step.type,
-    ...(Array.isArray(answer) ? { selected_count: answer.length } : {})
-  }
-}
-
 function FunnelRuntime() {
   const session = useFunnelRuntimeStore((state) => state.session)
   const funnel = useFunnelRuntimeStore((state) => state.funnel)
@@ -49,46 +35,13 @@ function FunnelRuntime() {
   const setError = useFunnelRuntimeStore((state) => state.setError)
 
   const submitMutation = useMutation({
-    mutationFn: (input: {
-      request: SubmitAnswerRequest
-      clientTimestamp: string
-      answerProperties: FunnelEventProperties | null
-    }) => {
+    mutationFn: (input: { request: SubmitAnswerRequest }) => {
       if (!session) throw new Error('Сессия ещё не готова')
       return submitSessionAnswer(session.id, input.request)
     },
-    onSuccess: ({ session: updatedSession }, input) => {
+    onSuccess: ({ session: updatedSession }) => {
       if (!session || !funnel) return
 
-      if (input.answerProperties) {
-        trackEvent({
-          sessionId: session.id,
-          name: 'answer_submitted',
-          clientTimestamp: input.clientTimestamp,
-          stepId: input.request.stepId,
-          properties: input.answerProperties
-        })
-      }
-      trackEvent({
-        sessionId: session.id,
-        name: 'step_completed',
-        clientTimestamp: input.clientTimestamp,
-        stepId: input.request.stepId,
-        properties: { next_step_id: updatedSession.currentStepId }
-      })
-      funnel.customEvents
-        .filter(
-          (event) => event.trigger === 'step_completed' && event.stepId === input.request.stepId
-        )
-        .forEach((event) =>
-          trackEvent({
-            sessionId: session.id,
-            name: event.name,
-            clientTimestamp: input.clientTimestamp,
-            stepId: input.request.stepId,
-            properties: { next_step_id: updatedSession.currentStepId }
-          })
-        )
       applySession(updatedSession)
       trackEvent({
         sessionId: session.id,
@@ -108,25 +61,15 @@ function FunnelRuntime() {
   })
 
   const backMutation = useMutation({
-    mutationFn: (input: { clientTimestamp: string; fromStepId: string }) => {
+    mutationFn: (input: { fromStepId: string }) => {
       if (!session) throw new Error('Сессия ещё не готова')
       if (input.fromStepId !== session.currentStepId) {
         throw new Error('Шаг уже изменился')
       }
       return moveSessionBack(session.id)
     },
-    onSuccess: ({ session: updatedSession }, input) => {
+    onSuccess: ({ session: updatedSession }) => {
       if (!session) return
-      trackEvent({
-        sessionId: session.id,
-        name: 'back_clicked',
-        clientTimestamp: input.clientTimestamp,
-        stepId: input.fromStepId,
-        properties: {
-          from_step_id: input.fromStepId,
-          to_step_id: updatedSession.currentStepId
-        }
-      })
       applySession(updatedSession)
       trackEvent({
         sessionId: session.id,
@@ -163,14 +106,11 @@ function FunnelRuntime() {
             request: {
               stepId: currentStepId,
               ...(validation.data !== undefined ? { answer: validation.data } : {})
-            },
-            clientTimestamp: new Date().toISOString(),
-            answerProperties: answerProperties(step, validation.data)
+            }
           })
         }}
         onBack={() =>
           backMutation.mutate({
-            clientTimestamp: new Date().toISOString(),
             fromStepId: currentStepId
           })
         }

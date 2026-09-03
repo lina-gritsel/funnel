@@ -1,5 +1,6 @@
 import cors from '@fastify/cors'
 import {
+  BackSessionRequestSchema,
   CreateFunnelVersionRequestSchema,
   CreateSessionRequestSchema,
   EventBatchRequestSchema,
@@ -101,6 +102,17 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     }
   })
 
+  app.post('/api/funnels/validate', async (request, reply) => {
+    const input = CreateFunnelVersionRequestSchema.safeParse(request.body)
+    if (!input.success) return reply.code(400).send({ message: 'Invalid version data' })
+
+    try {
+      return configs.preview(input.data.config)
+    } catch (error) {
+      return sendConfigError(error, reply, app)
+    }
+  })
+
   app.post('/api/funnels/versions', async (request, reply) => {
     const input = CreateFunnelVersionRequestSchema.safeParse(request.body)
     if (!input.success) return reply.code(400).send({ message: 'Invalid version data' })
@@ -170,8 +182,11 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
   app.post<{ Params: { sessionId: string } }>(
     '/api/sessions/:sessionId/back',
     async (request, reply) => {
+      const input = BackSessionRequestSchema.safeParse(request.body ?? {})
+      if (!input.success) return reply.code(400).send({ message: 'Invalid back navigation data' })
+
       try {
-        return await sessions.back(request.params.sessionId)
+        return await sessions.back(request.params.sessionId, input.data)
       } catch (error) {
         return sendSessionError(error, reply, app)
       }
