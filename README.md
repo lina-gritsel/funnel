@@ -3,7 +3,8 @@
 Fullstack workspace for a configurable funnel runtime.
 
 - Repository: [github.com/lina-gritsel/funnel](https://github.com/lina-gritsel/funnel)
-- Public demo: deploy-ready; the final URL is added after connecting a hosting account
+- Public demo: [funnel-production-7673.up.railway.app](https://funnel-production-7673.up.railway.app)
+- Protected admin: [configuration](https://funnel-production-7673.up.railway.app/admin) / [analytics](https://funnel-production-7673.up.railway.app/admin/analytics)
 
 ## Acceptance matrix
 
@@ -19,7 +20,7 @@ Fullstack workspace for a configurable funnel runtime.
 | Second iteration                                 | v2 branch, B-only step removal, custom event, publish and rollback             | Complete |
 | Automated verification                           | Unit/integration suite, production smoke path and Playwright lifecycle E2E     | Complete |
 | Reproducible production path                     | Compiled server, same-origin SPA, Dockerfile, healthcheck and Render Blueprint | Complete |
-| Working public URL                               | Requires connecting the private repository to the chosen hosting account       | Pending  |
+| Working public URL                               | Railway HTTPS demo with persistent SQLite storage                              | Complete |
 
 ## Requirements
 
@@ -85,10 +86,38 @@ Open `http://localhost:3001` for the funnel and `http://localhost:3001/admin` fo
 administration area. The named volume keeps SQLite data between container replacements. The image
 contains a healthcheck for `/api/health`.
 
-For a hosted demo, `render.yaml` defines the same Docker service and can be launched with the
+### Hosted demo on Railway
+
+The public demo runs as one Docker service with a persistent volume mounted at `/data`.
+The service is connected to the `master` branch of this public repository for automatic deployments.
+To reproduce the setup, connect the repository, keep the repository root as the build directory,
+attach a volume at `/data`, and configure these service variables:
+
+| Variable          | Value                                          |
+| ----------------- | ---------------------------------------------- |
+| `NODE_ENV`        | `production`                                   |
+| `API_HOST`        | `0.0.0.0`                                      |
+| `PORT`            | `3001`                                         |
+| `SQLITE_PATH`     | `/data/funnel.db`                              |
+| `ADMIN_TOKEN`     | A unique random secret, stored only in Railway |
+| `RAILWAY_RUN_UID` | `0` for access to Railway's root-owned volume  |
+
+Set the Railway healthcheck path to `/api/health`, timeout to 120 seconds, and restart retries to 3.
+Generate a Railway domain with target port `3001`. Keep a single replica for SQLite.
+The container build checks that SQLite and the external server dependencies can be loaded.
+
+The owner approved running this demo container as root to access the volume. This is a hosting-specific
+security tradeoff; the Dockerfile otherwise defaults to the unprivileged `node` user. The demo uses a
+trial account, so continued availability depends on Railway credits and plan limits. No paid upgrade
+was activated as part of deployment. Retrieve `ADMIN_TOKEN` from the service's Variables tab and share
+it with the reviewer privately; never commit it or put it in a URL.
+
+### Alternative: Render
+
+`render.yaml` defines the same Docker service and can be launched with the
 [Render Blueprint](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Flina-gritsel%2Ffunnel).
-Because the repository is private, the hosting account must first grant Render access to it. The free
-Blueprint uses ephemeral SQLite storage; attach a persistent disk at `/data` and change `SQLITE_PATH`
+The repository is public. The free Blueprint uses ephemeral SQLite storage; attach a persistent disk
+at `/data` and change `SQLITE_PATH`
 to `/data/funnel.db` when demo data must survive service replacement. Share the generated admin token
 with the reviewer separately.
 
