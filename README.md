@@ -35,7 +35,15 @@ npm run format
 npm run test
 npm run build
 npm run start
+npm run test:e2e
 ```
+
+The end-to-end suite builds and starts the production application with an isolated in-memory SQLite
+database. It covers both experiment variants, session restore after refresh, Back navigation,
+publishing v2 without moving existing sessions, rollback and protected admin access.
+
+The GitHub Actions workflow runs lint, type checking, unit/integration tests, the production build and
+the Chromium E2E suite for every push and pull request.
 
 `npm run start` is the production command. Run `npm run build` first; the Fastify process then serves
 both the API and the compiled React SPA from the same origin. `PORT` controls the public port,
