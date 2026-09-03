@@ -7,6 +7,8 @@ import {
   type FunnelVersionsResponse
 } from '@funnel/contracts'
 
+import { adminHeaders } from './admin'
+
 async function errorMessage(response: Response, fallback: string) {
   const body = (await response.json().catch(() => null)) as { message?: unknown } | null
   return typeof body?.message === 'string' ? body.message : fallback
@@ -31,7 +33,7 @@ export async function fetchFunnelVersions({
 }: {
   signal: AbortSignal
 }): Promise<FunnelVersionsResponse> {
-  const response = await fetch('/api/funnels/versions', { signal })
+  const response = await fetch('/api/funnels/versions', { headers: adminHeaders(), signal })
   if (!response.ok) throw new Error('Funnel versions request failed')
   return FunnelVersionsResponseSchema.parse(await response.json())
 }
@@ -39,7 +41,7 @@ export async function fetchFunnelVersions({
 export async function createFunnelVersion(config: unknown): Promise<FunnelConfig> {
   const response = await fetch('/api/funnels/versions', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: adminHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify({ config })
   })
   if (!response.ok) throw new Error(await errorMessage(response, 'Не удалось загрузить версию'))
@@ -49,7 +51,7 @@ export async function createFunnelVersion(config: unknown): Promise<FunnelConfig
 export async function validateFunnelConfig(config: unknown): Promise<FunnelConfigPreviewResponse> {
   const response = await fetch('/api/funnels/validate', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: adminHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify({ config })
   })
   if (!response.ok) throw new Error(await errorMessage(response, 'Конфигурация не прошла проверку'))
@@ -57,13 +59,19 @@ export async function validateFunnelConfig(config: unknown): Promise<FunnelConfi
 }
 
 export async function publishFunnelVersion(version: number): Promise<FunnelConfig> {
-  const response = await fetch(`/api/funnels/versions/${version}/publish`, { method: 'POST' })
+  const response = await fetch(`/api/funnels/versions/${version}/publish`, {
+    method: 'POST',
+    headers: adminHeaders()
+  })
   if (!response.ok) throw new Error(await errorMessage(response, 'Не удалось опубликовать версию'))
   return FunnelConfigSchema.parse(await response.json())
 }
 
 export async function rollbackFunnelVersion(): Promise<FunnelConfig> {
-  const response = await fetch('/api/funnels/rollback', { method: 'POST' })
+  const response = await fetch('/api/funnels/rollback', {
+    method: 'POST',
+    headers: adminHeaders()
+  })
   if (!response.ok) throw new Error(await errorMessage(response, 'Не удалось выполнить откат'))
   return FunnelConfigSchema.parse(await response.json())
 }

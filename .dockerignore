@@ -1,0 +1,10 @@
+.git
+.env
+.DS_Store
+**/node_modules
+**/dist
+coverage
+data/*.db
+data/*.db-*
+*.log
+*.tsbuildinfo

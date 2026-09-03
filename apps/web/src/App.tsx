@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { startEventDelivery } from './analytics/event-queue'
+import { AdminAccessGate } from './components/admin/AdminAccessGate'
 import { HomePage } from './pages/HomePage'
 import { AdminFunnelPage } from './pages/AdminFunnelPage'
 import { AdminAnalyticsPage } from './pages/AdminAnalyticsPage'
@@ -14,8 +15,22 @@ export function App() {
   return (
     <Routes>
       <Route path="/" element={<FunnelPage />} />
-      <Route path="/admin" element={<AdminFunnelPage />} />
-      <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
+      <Route
+        path="/admin"
+        element={
+          <AdminAccessGate>
+            <AdminFunnelPage />
+          </AdminAccessGate>
+        }
+      />
+      <Route
+        path="/admin/analytics"
+        element={
+          <AdminAccessGate>
+            <AdminAnalyticsPage />
+          </AdminAccessGate>
+        }
+      />
       <Route path="/dev" element={<HomePage />} />
       <Route path="/dev/ui" element={<UiKitPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />

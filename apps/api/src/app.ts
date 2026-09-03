@@ -1,4 +1,10 @@
+import { timingSafeEqual } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import cors from '@fastify/cors'
+import fastifyStatic from '@fastify/static'
 import {
   BackSessionRequestSchema,
   CreateFunnelVersionRequestSchema,
@@ -6,7 +12,7 @@ import {
   EventBatchRequestSchema,
   SubmitAnswerRequestSchema
 } from '@funnel/contracts'
-import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify'
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 
 import { AnalyticsService } from './analytics-service.js'
 import { createDatabase } from './database.js'
@@ -25,8 +31,22 @@ import {
 } from './session-service.js'
 
 type AppOptions = {
+  adminToken?: string
   databasePath?: string
+  environment?: 'development' | 'production' | 'test'
   random?: () => number
+  staticRoot?: string | false
+}
+
+const defaultStaticRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist')
+
+function tokenMatches(expected: string, provided: string) {
+  const expectedBuffer = Buffer.from(expected)
+  const providedBuffer = Buffer.from(provided)
+  return (
+    expectedBuffer.length === providedBuffer.length &&
+    timingSafeEqual(expectedBuffer, providedBuffer)
+  )
 }
 
 function sendSessionError(error: unknown, reply: FastifyReply, app: FastifyInstance) {
@@ -66,6 +86,15 @@ function versionParam(value: string) {
 
 export function buildApp(options: AppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true })
+  const environment = options.environment ?? process.env.NODE_ENV ?? 'development'
+  const adminToken = options.adminToken ?? process.env.ADMIN_TOKEN
+  const adminDisabled = environment === 'production' && !adminToken
+  const staticRoot =
+    options.staticRoot === undefined
+      ? environment === 'production'
+        ? defaultStaticRoot
+        : false
+      : options.staticRoot
   const database = createDatabase(options.databasePath)
   const configs = new FunnelConfigService(database)
   const events = new EventService(database, configs)
@@ -77,13 +106,36 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
   app.addHook('onClose', async () => database.close())
 
   void app.register(cors, {
-    origin: process.env.WEB_ORIGIN ?? 'http://localhost:5173'
+    origin:
+      process.env.WEB_ORIGIN ?? (environment === 'production' ? false : 'http://localhost:5173')
   })
+
+  const requireAdmin = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (adminDisabled) {
+      return reply.code(503).send({
+        message: 'Administrative access is disabled until ADMIN_TOKEN is configured'
+      })
+    }
+    if (!adminToken) return
+
+    const provided = request.headers['x-admin-token']
+    if (typeof provided !== 'string' || provided.length === 0) {
+      return reply.code(401).send({ message: 'Admin token is required' })
+    }
+    if (!tokenMatches(adminToken, provided)) {
+      return reply.code(403).send({ message: 'Admin token is invalid' })
+    }
+  }
 
   app.get('/api/health', async () => ({
     service: 'funnel-api',
     status: 'ok',
     timestamp: new Date().toISOString()
+  }))
+
+  app.get('/api/admin/session', { preHandler: requireAdmin }, async () => ({
+    authenticated: true,
+    protection: adminToken ? 'token' : 'development-open'
   }))
 
   app.get('/api/funnels/active', async (_request, reply) => {
@@ -94,7 +146,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     }
   })
 
-  app.get('/api/funnels/versions', async (_request, reply) => {
+  app.get('/api/funnels/versions', { preHandler: requireAdmin }, async (_request, reply) => {
     try {
       return configs.list()
     } catch (error) {
@@ -102,7 +154,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     }
   })
 
-  app.post('/api/funnels/validate', async (request, reply) => {
+  app.post('/api/funnels/validate', { preHandler: requireAdmin }, async (request, reply) => {
     const input = CreateFunnelVersionRequestSchema.safeParse(request.body)
     if (!input.success) return reply.code(400).send({ message: 'Invalid version data' })
 
@@ -113,7 +165,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     }
   })
 
-  app.post('/api/funnels/versions', async (request, reply) => {
+  app.post('/api/funnels/versions', { preHandler: requireAdmin }, async (request, reply) => {
     const input = CreateFunnelVersionRequestSchema.safeParse(request.body)
     if (!input.success) return reply.code(400).send({ message: 'Invalid version data' })
 
@@ -126,6 +178,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
 
   app.post<{ Params: { version: string } }>(
     '/api/funnels/versions/:version/publish',
+    { preHandler: requireAdmin },
     async (request, reply) => {
       const version = versionParam(request.params.version)
       if (!version) return reply.code(400).send({ message: 'Invalid funnel version' })
@@ -138,7 +191,7 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     }
   )
 
-  app.post('/api/funnels/rollback', async (_request, reply) => {
+  app.post('/api/funnels/rollback', { preHandler: requireAdmin }, async (_request, reply) => {
     try {
       return configs.rollback()
     } catch (error) {
@@ -199,14 +252,33 @@ export function buildApp(options: AppOptions = {}): FastifyInstance {
     return events.ingest(input.data.events)
   })
 
-  app.get<{ Querystring: { utmCampaign?: string } }>('/api/analytics', async (request, reply) => {
-    try {
-      return await analytics.get(request.query.utmCampaign)
-    } catch (error) {
-      app.log.error(error)
-      return reply.code(500).send({ message: 'Analytics is unavailable' })
+  app.get<{ Querystring: { utmCampaign?: string } }>(
+    '/api/analytics',
+    { preHandler: requireAdmin },
+    async (request, reply) => {
+      try {
+        return await analytics.get(request.query.utmCampaign)
+      } catch (error) {
+        app.log.error(error)
+        return reply.code(500).send({ message: 'Analytics is unavailable' })
+      }
     }
-  })
+  )
+
+  if (staticRoot && existsSync(staticRoot)) {
+    void app.register(fastifyStatic, { root: staticRoot })
+    app.setNotFoundHandler((request, reply) => {
+      const acceptsHtml = request.headers.accept?.includes('text/html')
+      if (
+        (request.method === 'GET' || request.method === 'HEAD') &&
+        !request.url.startsWith('/api/') &&
+        acceptsHtml
+      ) {
+        return reply.sendFile('index.html')
+      }
+      return reply.code(404).send({ message: 'Not found' })
+    })
+  }
 
   return app
 }

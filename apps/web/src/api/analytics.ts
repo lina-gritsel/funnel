@@ -1,5 +1,7 @@
 import { AnalyticsResponseSchema, type AnalyticsResponse } from '@funnel/contracts'
 
+import { adminHeaders } from './admin'
+
 export async function fetchAnalytics({
   campaign,
   signal
@@ -9,7 +11,10 @@ export async function fetchAnalytics({
 }): Promise<AnalyticsResponse> {
   const search = new URLSearchParams()
   if (campaign) search.set('utmCampaign', campaign)
-  const response = await fetch(`/api/analytics${search.size ? `?${search}` : ''}`, { signal })
+  const response = await fetch(`/api/analytics${search.size ? `?${search}` : ''}`, {
+    headers: adminHeaders(),
+    signal
+  })
   if (!response.ok) throw new Error('Analytics request failed')
   return AnalyticsResponseSchema.parse(await response.json())
 }

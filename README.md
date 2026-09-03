@@ -37,6 +37,45 @@ npm run build
 npm run start
 ```
 
+`npm run start` is the production command. Run `npm run build` first; the Fastify process then serves
+both the API and the compiled React SPA from the same origin. `PORT` controls the public port,
+`API_HOST` the listening interface and `SQLITE_PATH` the persistent database location.
+
+## Production with Docker
+
+Build and run the complete application as one container:
+
+```bash
+docker build -t funnel-runtime .
+docker run --name funnel-runtime \
+  -p 3001:3001 \
+  -e ADMIN_TOKEN=replace-with-a-long-random-secret \
+  -v funnel-runtime-data:/data \
+  funnel-runtime
+```
+
+Open `http://localhost:3001` for the funnel and `http://localhost:3001/admin` for the protected
+administration area. The named volume keeps SQLite data between container replacements. The image
+contains a healthcheck for `/api/health`.
+
+The equivalent non-container startup is:
+
+```bash
+npm run build
+NODE_ENV=production \
+PORT=3001 \
+SQLITE_PATH=./data/funnel.db \
+ADMIN_TOKEN=replace-with-a-long-random-secret \
+npm start
+```
+
+In production, admin APIs are disabled when `ADMIN_TOKEN` is missing. When it is configured, the
+configuration history, config validation, draft creation, publication, rollback and analytics require
+the matching `X-Admin-Token` header. The admin UI requests the token before loading protected data and
+keeps it only in `sessionStorage`. Public funnel and session endpoints do not require this token.
+
+For local development without `ADMIN_TOKEN`, admin access remains open for convenience.
+
 ## Workspace
 
 ```text
@@ -110,6 +149,9 @@ With the API running, populate the dashboard with a deterministic set of 100 ses
 ```bash
 npm run generate:traffic
 ```
+
+Run the generator against the local development server before enabling production-only admin
+protection; it verifies its output through the analytics endpoint.
 
 The generator uses the public HTTP API rather than writing to SQLite directly and adapts its routes
 to active version 1 or 2. It creates five UTM

@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 
+import { useAdminAuth } from './admin-auth-context'
+
 type AdminLayoutProps = {
   children: ReactNode
 }
@@ -13,6 +15,8 @@ const tabClass = ({ isActive }: { isActive: boolean }) =>
   }`
 
 export function AdminLayout({ children }: AdminLayoutProps) {
+  const { logout } = useAdminAuth()
+
   return (
     <div className="min-h-screen bg-canvas font-sans text-ink">
       <header className="border-b border-line bg-surface px-4 sm:px-6">
@@ -21,9 +25,18 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             <Link className="text-sm font-semibold" to="/">
               Funnel Runtime
             </Link>
-            <Link className="text-sm text-muted transition-colors hover:text-ink" to="/dev/ui">
-              UI foundation
-            </Link>
+            <div className="flex items-center gap-5">
+              <Link className="text-sm text-muted transition-colors hover:text-ink" to="/dev/ui">
+                UI foundation
+              </Link>
+              <button
+                type="button"
+                className="text-sm text-muted transition-colors hover:text-ink"
+                onClick={logout}
+              >
+                Выйти
+              </button>
+            </div>
           </div>
           <nav className="flex gap-7" aria-label="Разделы админки">
             <NavLink className={tabClass} end to="/admin">
